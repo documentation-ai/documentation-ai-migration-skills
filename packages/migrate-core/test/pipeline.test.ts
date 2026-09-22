@@ -411,7 +411,7 @@ describe('gates', () => {
       '<Card type="note" />', '',
     ].join('\n');
     const ws = mkdtempSync(join(tmpdir(), 'dai-roundtrip-')); ensureWorkspace(ws);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml')]), ledger: new Ledger(ws), log: new DecisionLog(ws) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml')]), ledger: new Ledger(ws), log: new DecisionLog(ws) });
     const resolved = engine.resolveDoc(markdownToIr(source, { platform: 'mintlify', file: 'quickstart.md', pageId: 'p' }));
     const mdx = docToMdx(resolved);
     const reparsed = markdownToIr(mdx, { platform: 'dai', file: 'quickstart.mdx', pageId: 'p' });
@@ -892,7 +892,7 @@ describe('gate semantics', () => {
   });
 
   it('lets a rule drop script and style elements in exact mode, but fails no-authored-exclusions when a rule drops a paragraph', () => {
-    const generic = loadMappings([join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]);
+    const generic = loadMappings([join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]);
     const dropCallout: MappingTable = { platform: '*', version: 1, rules: [{ id: 'test/callout-drop', tier: 'T7', match: { name: 'Callout' }, children: 'drop' }] };
     const page = (html: string): DocIR => ({ pageId: 'p', platform: 'generic', source: 'page.html', frontmatter: { title: 'Page' }, children: htmlToIr(html, { platform: 'generic', file: 'page.html', articleSelector: 'article', recognisers: [{ selector: '.callout', name: 'Callout' }] }).children });
     const resolveWith = (mappings: MappingTable[], doc: DocIR): string => {
@@ -945,7 +945,7 @@ describe('gate semantics', () => {
 
 describe('exact conversion fidelity', () => {
   /** The mapping set the convert stage loads for a Mintlify site. */
-  const mintlifyMappings = () => loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]);
+  const mintlifyMappings = () => loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]);
   interface Conversion { source: DocIR; resolved: DocIR; workspace: string }
   const resolve = (source: DocIR): Conversion => {
     const workspace = mkdtempSync(join(tmpdir(), 'dai-fidelity-')); ensureWorkspace(workspace);

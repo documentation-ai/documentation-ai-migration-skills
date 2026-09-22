@@ -1,8 +1,6 @@
----
-name: scrape-document360
-description: Acquire live Document360 pages when an export is unavailable, using sitemap and seed-link discovery plus the Document360 article selectors and component recognisers.
----
-# Scrape Document360
+# Acquiring the live site
+
+Acquire live Document360 pages when an export is unavailable, using sitemap and seed-link discovery plus the Document360 article selectors and component recognisers.
 
 Use only for pages the export or API could not provide. Native sources win.
 

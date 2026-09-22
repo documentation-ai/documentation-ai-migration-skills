@@ -1,8 +1,6 @@
----
-name: verify
-description: "Test a migration with hard release gates for plans, page and ledger coverage, prose, code and table preservation, contract validity, links, assets, unsafe URLs, redirects, review decisions, determinism, preview contract version, and rendered anchors."
----
-# Verify
+# Verifying a migration
+
+Test a migration with hard release gates for plans, page and ledger coverage, prose, code and table preservation, contract validity, links, assets, unsafe URLs, redirects, review decisions, determinism, preview contract version, and rendered anchors.
 
 Run `convert` twice over identical inputs, then run `dai-migrate verify` once locally. Stop at **human gate 3/4** for output review; a check that failed is a finding for that review and is recorded with the push, never a reason to withhold the preview (release is where it blocks). After `write --push` or `publish` has recorded the preview, run `verify --preview` (or `verify --preview-url <url>` for a preview URL read from the dashboard, which is the normal case when no API key is configured; it is remembered; `--preview-contract-version` overrides the version read from the platform or assumed); when every release check passes, stop at **human gate 4/4** for cutover approval. After approval run `dai-migrate release`; only its immutable `report/release-certificate.json` authorises cutover. Read `report/gates.json`: any failed required check blocks the corresponding human gate.
 

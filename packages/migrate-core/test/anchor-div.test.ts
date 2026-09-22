@@ -21,7 +21,7 @@ describe('Mintlify anchor divs', () => {
     const ir = htmlToIr(html, htmlAdapterOptions(PROFILES.mintlify ?? PROFILES.generic, { platform: 'mintlify', file: 'https://docs.example.com/a' }));
     const doc: DocIR = { pageId: 'p', platform: 'mintlify', source: 'https://docs.example.com/a', frontmatter: { title: 'A' }, children: ir.children };
     const w = mkdtempSync(join(tmpdir(), 'dai-anchor-div-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(doc));
     expect(mdx).toContain('<a id="draft-improvements-from-assistant-conversations"></a>');
     expect(mdx).not.toContain('QUARANTINED');
@@ -30,7 +30,7 @@ describe('Mintlify anchor divs', () => {
   it('does the same for the div in a Markdown export', () => {
     const doc = markdownToIr('---\ntitle: A\n---\n\n### Draft changelog\n\nCreates an entry.\n\n<div id="draft-improvements-from-assistant-conversations"></div>\n\n### Fill gaps\n', { platform: 'mintlify', file: 'a.md', pageId: 'p' });
     const w = mkdtempSync(join(tmpdir(), 'dai-anchor-div-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(doc));
     expect(mdx).toContain('<a id="draft-improvements-from-assistant-conversations"></a>');
     expect(mdx).not.toContain('QUARANTINED');
@@ -41,7 +41,7 @@ describe('prompt-to-code', () => {
   it('copies the whole prompt, numbered list included', () => {
     const doc = markdownToIr('---\ntitle: A\n---\n\n<Prompt description="Install a skill." actions={["copy"]}>\n  Install the skill into my agent.\n\n  1. Ask me for the URL, then run `npx skills add <url>`.\n  2. Print the installed skills.\n</Prompt>\n', { platform: 'mintlify', file: 'a.mdx', pageId: 'p' });
     const w = mkdtempSync(join(tmpdir(), 'dai-prompt-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(doc));
     expect(mdx).toContain('Install a skill.');
     expect(mdx).toContain('```text\nInstall the skill into my agent.\n\n1. Ask me for the URL, then run npx skills add <url>.\n2. Print the installed skills.\n```');
@@ -54,7 +54,7 @@ describe('footnote bodies in the ledger', () => {
     const doc = markdownToIr('---\ntitle: A\n---\n\nText[^n].\n\n[^n]: First paragraph.\n\n    Second paragraph.\n', { platform: 'gitbook', file: 'a.md', pageId: 'p' });
     const w = mkdtempSync(join(tmpdir(), 'dai-fn-')); ensureWorkspace(w);
     const ledger = new Ledger(w);
-    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger, log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook-to-documentation-ai/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger, log: new DecisionLog(w) });
     engine.resolveDoc(doc);
     const recorded = new Set(Ledger.read(w).map((d) => d.sourceNodeId));
     const definition = doc.children[1] as Extract<typeof doc.children[number], { type: 'footnoteDefinition' }>;

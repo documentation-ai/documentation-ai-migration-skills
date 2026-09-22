@@ -1,8 +1,6 @@
----
-name: scrape-readme
-description: "Scrape a hosted ReadMe site using the current sidebar, Markdown content container, hub state, Markdown-suffix endpoint when available, and readme-deploy metadata."
----
-# Scrape ReadMe
+# Acquiring the live site
+
+Scrape a hosted ReadMe site using the current sidebar, Markdown content container, hub state, Markdown-suffix endpoint when available, and readme-deploy metadata.
 
 - Fingerprint: `.rm-Sidebar` + `#hub-container` + `#ssr-props`, `cdn.readme.io` assets, `<meta name="readme-deploy">`. `rm-Article` is stale; do not rely on it.
 - The acquire command tries a `.md` suffix and treats HTML as the fallback; confirm coverage because availability varies by site.

@@ -1,8 +1,13 @@
 ---
-name: migrate-gitbook
-description: Migrate a GitBook space onto Documentation.AI from its Git Sync repository (SUMMARY.md navigation, .gitbook.yaml root and redirects, Liquid-flavoured Markdown), falling back to scrape-gitbook. The GitBook API client is not implemented yet.
+name: migrate-gitbook-to-documentation-ai
+description: Move a GitBook space onto Documentation.AI, from its Git Sync repository or its live site: SUMMARY.md navigation, .gitbook.yaml root and redirects, and Liquid-flavoured Markdown. Use when asked to migrate, import or move GitBook documentation.
 ---
-# Migrate GitBook
+
+# Migrate GitBook to Documentation.AI
+
+## Start here
+
+Read `references/how-a-migration-runs.md` first, in full. It carries what every migration shares: how to ask a person the four decisions (choices to click, never a sentence to type), the stages in order, the delivery flows, and what the migrator will not guess at. This skill adds only what is specific to GitBook.
 
 Implemented source preference: **Git Sync repository** → live URL acquisition with the GitBook scrape profile (`.md` suffix first).
 
@@ -16,7 +21,7 @@ Implemented source preference: **Git Sync repository** → live URL acquisition 
 - API reference: GitBook writes each operation, and each schema on a models page, as a fenced one-operation OpenAPI document. It becomes a static reference in the page: method and path, auth and parameters as `ParamField`, request body fields, and each response's fields as `ResponseField` (`$ref`/`allOf` resolved, nested objects in an Expandable). Any other JSON fence stays code. No group-level `openapi` spec is attached, so the pages keep their approved navigation and no playground is generated.
 
 ## Procedure
-At every gate, ask the way the router skill (`skills/migrate/SKILL.md`, "How you ask" and "Four human gates") says: a short summary, then choices the person can click, first option approves; on approval record it under the name they gave at the start and carry on with the next stages in the same turn. Never ask them to type "approve gate N".
+At every gate, ask the way the shared workflow says (`references/how-a-migration-runs.md`) says: a short summary, then choices the person can click, first option approves; on approval record it under the name they gave at the start and carry on with the next stages in the same turn. Never ask them to type "approve gate N".
 1. `dai-migrate init ... --repo <git-sync-repo> --platform gitbook`
 2. `dai-migrate discover` → **human gate 1/4**: review `plan/tree.yaml` and decide what to do with unlisted files (`inventory/platform-meta.json`).
 3. `inventory` → `plan` → **human gate 2/4** → `assets` → `convert` twice → `nav` → local `verify` → **human gate 3/4** → `write --push` (or `publish` in the MCP flow) → `verify --preview` → **human gate 4/4** → `release` (writes the immutable cutover certificate) → `report`.

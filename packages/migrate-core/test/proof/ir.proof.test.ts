@@ -23,7 +23,7 @@ import { ensureWorkspace } from '../../src/session/workspace.js';
 const dir = resolveSourceTruthDir();
 const truth = loadTruth(dir);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
-const mintlifyMappings = [join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml')];
+const mintlifyMappings = [join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml')];
 
 interface RoundTrip { resolved: DocIR; mdx: string; reparsed: DocIR }
 

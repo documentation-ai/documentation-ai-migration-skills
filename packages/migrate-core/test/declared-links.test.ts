@@ -22,7 +22,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
 describe('a link a rule wrote by an operator\'s decision', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'dai-declared-')); ensureWorkspace(workspace);
-  const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(workspace), log: new DecisionLog(workspace) });
+  const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(workspace), log: new DecisionLog(workspace) });
   const source = 'https://www.mintlify.com/docs/deploy/vercel';
   // every link to the source site is moved to its migrated route, as convert does
   const toRoute = (url: string): string => (url.startsWith('https://www.mintlify.com/docs/') ? url.replace('https://www.mintlify.com', '') : url);

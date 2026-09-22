@@ -18,13 +18,13 @@ make a run finish.
 When you fix this plugin part-way through a migration, do not start a new workspace and crawl the
 source again: run `dai-migrate rebase --reason "<what changed>"` then `dai-migrate discover
 --offline`. The frozen bytes are the customer's, not ours, so a fix to our code stales only what we
-derived from them. See "After fixing the migrator mid-run" in `skills/migrate/SKILL.md`.
+derived from them. See "After fixing the migrator mid-run" in `references/how-a-migration-runs.md`.
 
 ## How to run a migration
 
-Follow `skills/migrate/SKILL.md`. It is the router: it fingerprints the source and
-hands off to the platform skill (`skills/migrate-mintlify/`, `migrate-gitbook`,
-`migrate-readme`, `migrate-document360`, or `migrate-generic`). Each platform skill
+Follow `references/how-a-migration-runs.md`, then the skill for the source
+(`skills/migrate-mintlify-to-documentation-ai/`, `migrate-gitbook-to-documentation-ai`,
+`migrate-readme-to-documentation-ai`, `migrate-document360-to-documentation-ai`, or `migrate-generic-to-documentation-ai`). Each platform skill
 states what its adapter recovers and where it stops.
 
 The skills orchestrate a deterministic CLI; they do not convert anything themselves.
@@ -33,7 +33,7 @@ it is not installed globally. In a sandbox where npm cannot write its own folder
 launcher directly, `node packages/migrate-core/bin/dai-migrate.mjs <command>`, with the network
 allowed and the parent of the workspace folder writable
 (`codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir <folder>`).
-The full ordered command sequence is in `skills/migrate/SKILL.md` under "Run sequence".
+The full ordered command sequence is in `references/how-a-migration-runs.md` under "Run sequence".
 In short:
 
 ```
@@ -73,7 +73,7 @@ finding yourself.
 `--fidelity permissive` is for test runs the user explicitly asks for: it reports the
 exact-fidelity gates as `not-run`, lets `assets --provider none` leave media on the source
 host, and `write --push --allow-lossy` records the unproven gates as waived. See "Exploratory
-test run" in `skills/migrate/SKILL.md`.
+test run" in `references/how-a-migration-runs.md`.
 
 A failing gate never withholds the preview, in any mode: once scope and plan are approved,
 `write --push` publishes the branch with every finding recorded in

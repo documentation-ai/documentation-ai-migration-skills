@@ -20,7 +20,7 @@ import { authoredContentSnapshot, fidelityEqual } from '../src/verify/fidelity.j
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const engineFor = () => {
   const workspace = mkdtempSync(join(tmpdir(), 'dai-landing-')); ensureWorkspace(workspace);
-  return new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(workspace), log: new DecisionLog(workspace) });
+  return new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(workspace), log: new DecisionLog(workspace) });
 };
 
 const LANDING = `<div className="relative">

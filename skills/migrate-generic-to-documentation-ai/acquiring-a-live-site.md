@@ -1,8 +1,6 @@
----
-name: scrape-generic
-description: "Acquire a frozen documentation URL list with Firecrawl batch scrape or a rate-limited local fetcher with robots, retry, cache, response-size, redirect, DNS and SSRF protections."
----
-# Scrape generic
+# Acquiring the live site
+
+Acquire a frozen documentation URL list with Firecrawl batch scrape or a rate-limited local fetcher with robots, retry, cache, response-size, redirect, DNS and SSRF protections.
 
 - Firecrawl: `POST /v2/batch/scrape` over the frozen URL list with `maxConcurrency` from the session, `ignoreInvalidURLs:false`, `skipTlsVerification:false`, `storeInCache:false`, `formats:[html,markdown,links]`, `onlyMainContent:true`, `proxy:auto`. Persist results before the job's `expiresAt`; consume every `next` page; fail if `completed !== expected`.
 - Discovery: recursively reads robots-declared and conventional sitemap indexes/URL sets (including gzip), preserving order, index provenance, `lastmod`, `changefreq`, `priority`, hreflang alternates, and conservative section/locale/version hints. It unions those pages with ordered sidebar links, recursive same-origin links, and optional Firecrawl mapping.

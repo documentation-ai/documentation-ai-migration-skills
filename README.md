@@ -64,19 +64,23 @@ In every flow Documentation.AI builds a preview of what was delivered by itself,
 ## Install
 
 ```bash
-git clone https://github.com/KrishnaPrakhya27/documentation.ai-migrator-skill.git ~/documentation.ai-migration-skills
-cd ~/documentation.ai-migration-skills
+git clone https://github.com/documentation-ai/documentation-ai-migration-skills.git ~/documentation-ai-migration-skills
+cd ~/documentation-ai-migration-skills
 npm install
 ```
 
 **Claude Code**, as a plugin:
 
 ```
-/plugin marketplace add ~/documentation.ai-migration-skills
+/plugin marketplace add ~/documentation-ai-migration-skills
 /plugin install documentation-ai-migration@documentation-ai-migration
 ```
 
-You can add the marketplace straight from GitHub instead (`/plugin marketplace add KrishnaPrakhya27/documentation.ai-migrator-skill`); then run `npm install` once inside the folder Claude Code cloned it to. Or start Claude Code with the plugin loaded from disk: `claude --plugin-dir ~/documentation.ai-migration-skills`.
+You can add the marketplace straight from GitHub instead (`/plugin marketplace add documentation-ai/documentation-ai-migration-skills`); then run `npm install` once inside the folder Claude Code cloned it to. Or start Claude Code with the plugin loaded from disk: `claude --plugin-dir ~/documentation-ai-migration-skills`.
+
+Installing the plugin also connects Documentation.AI's Authoring MCP server (`https://api.documentation.ai/mcp`), which is what publishes your migrated pages and hosts your pictures. Your browser opens to sign in the first time something needs it.
+
+If you also want your published documentation searchable from the same session, add your own Reader MCP server by hand; it is served from your docs domain, as `https://docs.yourdomain.com/_mcp`.
 
 **Any other assistant**: see [Use it from any assistant](#use-it-from-any-assistant).
 
@@ -86,7 +90,7 @@ The command line is run from this folder as `npx dai-migrate <command>`. It is n
 
 ## Quick start
 
-Tell your assistant: *"Migrate https://docs.acme.com onto Documentation.AI. My project's repository is cloned at ~/acme-docs."* It follows `skills/migrate/SKILL.md` and stops at the four decisions.
+Tell your assistant: *"Migrate https://docs.acme.com onto Documentation.AI. My project's repository is cloned at ~/acme-docs."* It follows `references/how-a-migration-runs.md` and stops at the four decisions.
 
 By hand, the clone flow is this sequence. The workspace holds everything the run produces and lives **outside** this folder.
 
@@ -146,14 +150,14 @@ The skills are plain Markdown and the engine is a command line, so anything that
 | --- | --- |
 | **Claude Code** | install the plugin (above). Ask it to migrate a site |
 | **Codex** (ChatGPT's coding agent) | install it as a Codex plugin (below), then type `Use $migrate to migrate https://docs.acme.com onto Documentation.AI` |
-| Gemini CLI and other terminal agents | open this folder. They read `AGENTS.md`, which points at `skills/migrate/SKILL.md`. Ask them to migrate a site |
+| Gemini CLI and other terminal agents | open this folder. They read `AGENTS.md`, which points at `references/how-a-migration-runs.md`. Ask them to migrate a site |
 | **Claude Desktop, Cursor, VS Code, Windsurf** and any other MCP host | add the local MCP server below. It gives the host four tools: `migration_guide`, `migration_status`, `migration_run`, `migration_read` |
 | **claude.ai, ChatGPT chat** | these run in the cloud and cannot reach your files or your git credentials. Use one of the rows above for the migration; use the chat for reviewing the report |
 
 **Codex.** The repository is a Codex plugin marketplace as well (`.agents/plugins/marketplace.json`, `.codex-plugin/plugin.json`):
 
 ```bash
-codex plugin marketplace add ~/documentation.ai-migration-skills        # or KrishnaPrakhya27/documentation.ai-migrator-skill
+codex plugin marketplace add ~/documentation-ai-migration-skills        # or documentation-ai/documentation-ai-migration-skills
 codex plugin add documentation-ai-migration@documentation-ai-migration
 ```
 
@@ -173,7 +177,7 @@ Then type `Use $migrate to migrate https://docs.acme.com onto Documentation.AI` 
   "mcpServers": {
     "dai-migrate": {
       "command": "node",
-      "args": ["/absolute/path/to/documentation.ai-migration-skills/packages/migrate-core/bin/dai-migrate.mjs", "mcp"]
+      "args": ["/absolute/path/to/documentation-ai-migration-skills/packages/migrate-core/bin/dai-migrate.mjs", "mcp"]
     }
   }
 }
@@ -184,7 +188,7 @@ That block goes in `claude_desktop_config.json` for Claude Desktop, `.cursor/mcp
 ```toml
 [mcp_servers.dai-migrate]
 command = "node"
-args = ["/absolute/path/to/documentation.ai-migration-skills/packages/migrate-core/bin/dai-migrate.mjs", "mcp"]
+args = ["/absolute/path/to/documentation-ai-migration-skills/packages/migrate-core/bin/dai-migrate.mjs", "mcp"]
 ```
 
 No key goes in the server's configuration: `publish` opens your browser to sign in. Whichever assistant drives it, the rules live in the command line: it refuses a workspace inside this folder, refuses to push unapproved scope, and records every approval with a person's name.
@@ -376,7 +380,8 @@ npm run contract:extract                            # regenerate the content con
 Before reporting a fix to a check, prove it on a real captured workspace: copy the workspace, `rebase` → `discover --offline` → … → `verify`, and read `report/gates.json`. Conventions: strict TypeScript, no `any`, async/await, names that say what they do, comments that say why. The same input produces byte-identical output. Fail closed.
 
 ```
-skills/                    the assistant's instructions: migrate (router), migrate-<platform>, scrape-<platform>, verify, report
+skills/                    one per source: migrate-<source>-to-documentation-ai, each with its own live-site notes and rules
+references/                what every migration shares: how a migration runs, verifying a migration, the migration report
 packages/migrate-core/     the engine: cli, scrape, adapters, ir, components (rules), assets, nav, urls, verify, publish, report
 packages/content-contract/ the Documentation.AI content contract: components, navigation grammar, settings schema, icon names
 docs/STATUS.md             what is verified, the boundaries, and a dated log of every cause fixed

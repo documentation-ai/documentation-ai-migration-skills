@@ -1,8 +1,6 @@
----
-name: migrate
-description: "Router for Documentation.AI migrations: fingerprints the source (export archive, source repo, or live site), scores the platform, and hands off to the matching platform migration skill or to migrate-generic. Use when asked to migrate, import, or move docs onto Documentation.AI."
----
-# Migrate (router)
+# How a migration runs
+
+What every migration shares, whatever the source: how to ask the four decisions, the stages in order, the delivery flows, and what the migrator refuses to guess. Each platform skill adds only its own specifics and points here.
 
 You are migrating someone's documentation onto Documentation.AI. Deterministic code does the work; you orchestrate the four human gates below, explain each in plain words to a person who may never have used git, and never publish anything the automated checks or that person rejects. You never approve a gate or accept a finding yourself: those are decisions a named person makes.
 
@@ -27,12 +25,15 @@ The person should be able to run a whole migration by clicking. Wherever your en
    **MCP flow only: run `dai-migrate project` straight after `init`.** It opens the person's browser to sign in (tell them to look for it) and records which Documentation.AI project the migration goes into. If it stops and lists several projects, ask which one, with the projects as the options, and run it again with `--project "<name>"`. Doing this first means the person learns now, not after an hour's work, whether their account can edit the project, and it is what files hosted pictures under the right project: `assets` hosts them there through the same sign-in, so it needs the project chosen first. `publish` later signs in again (the sign-in is never stored) and goes to the same project.
 3. Run `dai-migrate fingerprint`. Read `plan/fingerprint.json`: platform, confidence, signals. If confidence < 0.7 or two platforms score close and the user did not already select a platform, ask which platform it is; never guess on hybrid sites. An explicit user platform selection resolves this exception.
 
-## Hand-off
-- `document360` → skill `migrate-document360`
-- `readme` → `migrate-readme`
-- `mintlify` → `migrate-mintlify`
-- `gitbook` → `migrate-gitbook`
-- otherwise → `migrate-generic`
+## If the source turns out to be another platform
+
+`fingerprint` names the platform from the source itself, so it can disagree with the skill in hand. When it does, switch to the skill that covers what it found and carry on in the same workspace:
+
+- `mintlify` → `migrate-mintlify-to-documentation-ai`
+- `gitbook` → `migrate-gitbook-to-documentation-ai`
+- `readme` → `migrate-readme-to-documentation-ai`
+- `document360` → `migrate-document360-to-documentation-ai`
+- anything else → `migrate-generic-to-documentation-ai`, which also covers Docusaurus, Nextra, Fern, MadCap Flare, Markdown folders and any live site
 
 Current executable paths are: Document360 export ZIP/directory; any local Markdown/MDX/HTML repository; ReadMe API v2; Mintlify, GitBook, ReadMe sync, Fern, Docusaurus, Nextra and MadCap Flare repositories; and live URL acquisition through the local fetcher or Firecrawl, including published MadCap Flare sites. The platform skills state their remaining boundaries explicitly.
 

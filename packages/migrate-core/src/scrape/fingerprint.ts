@@ -63,7 +63,7 @@ export function fingerprint(ctx: { html?: string; paths?: string[]; mdSuffixWork
     .filter((r) => r.matched.length > 0)
     .sort((a, b) => b.confidence - a.confidence);
   const best = ranked[0] ?? null;
-  if (!best) return { best: null, ranked, ambiguous: true, reason: 'no platform signals matched; use migrate-generic or pass --platform' };
+  if (!best) return { best: null, ranked, ambiguous: true, reason: 'no platform signals matched; use the skill migrate-generic-to-documentation-ai, or pass --platform' };
   const second = ranked[1];
   if (best.confidence < MIN_CONFIDENCE) return { best, ranked, ambiguous: true, reason: `top score ${best.confidence.toFixed(2)} below ${MIN_CONFIDENCE}` };
   if (second && best.confidence - second.confidence < AMBIGUITY_GAP) return { best, ranked, ambiguous: true, reason: `${best.platform} and ${second.platform} score within ${AMBIGUITY_GAP}; hybrid or customised site` };

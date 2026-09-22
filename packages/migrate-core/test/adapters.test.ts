@@ -83,7 +83,7 @@ describe('Markdown adapter: anchors, snippets, expressions', () => {
   });
   it('converts a Mintlify page end to end into contract-valid MDX', () => {
     const w = mkdtempSync(join(tmpdir(), 'dai-mint-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(doc()));
     expect(mdx).toContain('<Callout kind="info">');
     expect(mdx).toContain('<Columns cols={2}>');
@@ -301,7 +301,7 @@ describe('GitBook repo adapter', () => {
       '{% tabs %}', '{% tab title="TypeScript" %}', '```ts', "import type { A } from 'a';", 'export default { a: 1 } satisfies A;', '```', '{% endtab %}', '{% endtabs %}',
     ].join('\n');
     const doc = markdownToIr(source, { platform: 'gitbook', file: 'p.md', pageId: 'p' });
-    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook-to-documentation-ai/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(doc));
     expect(validateMdx(mdx)).toEqual([]);
     // a Step title stands for the heading it replaced, and an assistant prompt's text is chrome: nothing authored is missing
@@ -358,7 +358,7 @@ describe('GitBook repo adapter', () => {
     const source = ['## Update a pet', '', '```json', JSON.stringify(operation), '```', '', '## The PetStatus object', '', '```json', JSON.stringify(models), '```', '', '```json', '{"error": {"code": "not_found"}}', '```'].join('\n');
     const doc = markdownToIr(source, { platform: 'gitbook', file: 'p.md', pageId: 'p' });
     const w = mkdtempSync(join(tmpdir(), 'dai-gb-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook-to-documentation-ai/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(doc));
     expect(validateMdx(mdx)).toEqual([]);
     for (const expected of [
@@ -392,7 +392,7 @@ describe('GitBook repo adapter', () => {
   it('converts a hint to a Callout through the gitbook mapping', () => {
     const w = mkdtempSync(join(tmpdir(), 'dai-gb-')); ensureWorkspace(w);
     const d = markdownToIr(readFileSync(fx('gitbook-repo/guide/first.md'), 'utf8'), { platform: 'gitbook', file: 'guide/first.md', pageId: 'g1' });
-    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook-to-documentation-ai/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(d));
     expect(mdx).toContain('<Callout kind="alert">');
     expect(validateMdx(mdx)).toEqual([]);
@@ -407,7 +407,7 @@ describe('ReadMe adapters', () => {
     expect(r.tree.pages[1].group).toEqual(['Getting Started']);
     expect(r.hidden).toEqual(['docs/Getting Started/secret.md']);
     const d = markdownToIr(readFileSync(fx('readme-repo/docs/Getting Started/install.md'), 'utf8'), { platform: 'readme', file: 'install.md', pageId: 'r1' });
-    const engine = new RulesEngine({ platform: 'readme', mappings: loadMappings([join(repoRoot, 'skills/migrate-readme/mappings/readme.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'readme', mappings: loadMappings([join(repoRoot, 'skills/migrate-readme-to-documentation-ai/mappings/readme.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(d));
     expect(mdx).toContain('<Callout kind="info">');
     expect(mdx).not.toContain('📘');

@@ -2,7 +2,22 @@
   "name": "documentation-ai-migration",
   "version": "0.2.2",
   "description": "Migrate a documentation site onto Documentation.AI exactly: Mintlify, GitBook, ReadMe, Document360, MadCap Flare and generic sources; deliver through your own clone, a git remote, or the Authoring MCP server with a browser sign-in; verification and a plain-language report.",
-  "author": { "name": "Documentation.AI" },
+  "author": {
+    "name": "Documentation.AI"
+  },
   "skills": "./skills",
-  "keywords": ["documentation", "migration", "mintlify", "gitbook", "readme", "document360"]
+  "keywords": [
+    "documentation",
+    "migration",
+    "mintlify",
+    "gitbook",
+    "readme",
+    "document360"
+  ],
+  "mcpServers": {
+    "documentation-ai-authoring": {
+      "type": "http",
+      "url": "https://api.documentation.ai/mcp"
+    }
+  }
 }

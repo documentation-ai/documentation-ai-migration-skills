@@ -224,11 +224,13 @@ function inlineSnippetBodies(doc: DocIR, snippets: Array<{ token: string; body: 
 }
 
 
+/** A platform's own rules, then the generic ones every platform falls back to. */
 function mappingPaths(platform: string): string[] {
+  const skill = (name: string) => join(PLUGIN_ROOT, 'skills', `migrate-${name}-to-documentation-ai`, 'mappings');
   const out: string[] = [];
-  const own = join(PLUGIN_ROOT, 'skills', `migrate-${platform}`, 'mappings', `${platform}.yaml`);
+  const own = join(skill(platform), `${platform}.yaml`);
   if (existsSync(own)) out.push(own);
-  out.push(join(PLUGIN_ROOT, 'skills', 'migrate-generic', 'mappings', 'generic.yaml'));
+  out.push(join(skill('generic'), 'generic.yaml'));
   return out;
 }
 

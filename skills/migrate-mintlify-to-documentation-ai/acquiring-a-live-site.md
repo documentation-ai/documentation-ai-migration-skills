@@ -1,8 +1,6 @@
----
-name: scrape-mintlify
-description: "Acquire hosted Mintlify pages when the source repository is unavailable, using recursive sitemaps, ordered sidebar links, same-origin crawling, Mintlify article selectors, and rendered-component recognisers."
----
-# Scrape Mintlify
+# Acquiring the live site
+
+Acquire hosted Mintlify pages when the source repository is unavailable, using recursive sitemaps, ordered sidebar links, same-origin crawling, Mintlify article selectors, and rendered-component recognisers.
 
 - Fingerprint (`profiles.ts` mintlify signals): `<meta name="generator" content="Mintlify">`, `application-name=Mintlify`, `#content-area`, `#sidebar-content`, `#navigation-items`, `mintcdn.com` assets, `docs.json` / `mint.json` in a repo, and the published `.md` suffix.
 - Discovery: recursive sitemap indexes ∪ ordered Mintlify sidebar links ∪ recursive same-origin links ∪ optional Firecrawl map. Sitemap order and locale/version hints are used only when stronger sidebar/path evidence is absent.

@@ -32,7 +32,7 @@ const renderedDoc = (path: string): DocIR => {
 describe('no-authored-exclusions over the demo site (proof)', () => {
   it('converts all 14 rendered pages without a single excluded disposition and passes the gate in exact mode', () => {
     const ws = mkdtempSync(join(tmpdir(), 'dai-proof-gates-')); ensureWorkspace(ws);
-    const mappings = loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]);
+    const mappings = loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]);
     const engine = new RulesEngine({ platform: 'mintlify', mappings, ledger: new Ledger(ws), log: new DecisionLog(ws) });
     const docs = truth.pages.map((page) => renderedDoc(page.path));
     expect(docs).toHaveLength(14);

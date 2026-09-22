@@ -22,7 +22,7 @@ describe('MadCap landing-page tiles', () => {
     const ir = htmlToIr(html, htmlAdapterOptions(PROFILES.madcap, { platform: 'madcap', file: 'https://learn.example.com/home.htm' }));
     const doc: DocIR = { pageId: 'p', platform: 'madcap', source: 'https://learn.example.com/home.htm', frontmatter: { title: 'Home' }, children: ir.children };
     const w = mkdtempSync(join(tmpdir(), 'dai-tiles-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'madcap', mappings: loadMappings([join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'madcap', mappings: loadMappings([join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const mdx = docToMdx(engine.resolveDoc(doc));
     expect(mdx).toContain('<Columns cols={4}>');
     expect(mdx).toContain('<Card title="Account Management" href="Procedures/Account Management/p_account_LP.htm" />');
@@ -45,7 +45,7 @@ describe('MadCap landing tabs and tile menus', () => {
     for (const b of ir.children) if (b.type === 'component' && b.name === 'MCLinkedToc') { b.props.tocUrl = toc; b.props.helpRoot = 'https://learn.example.com/'; }
     const doc: DocIR = { pageId: 'p', platform: 'madcap', source, frontmatter: { title: 'Reference' }, children: ir.children };
     const w = mkdtempSync(join(tmpdir(), 'dai-toc-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'madcap', mappings: loadMappings([join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w), flareData });
+    const engine = new RulesEngine({ platform: 'madcap', mappings: loadMappings([join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w), flareData });
     return docToMdx(engine.resolveDoc(doc));
   };
   it('writes the tab strip as cards, the current tab without a link and its mobile duplicate dropped', () => {
@@ -87,7 +87,7 @@ describe('a tile menu’s links are links between pages', () => {
     for (const b of ir.children) if (b.type === 'component' && b.name === 'MCLinkedToc') { b.props.tocUrl = toc; b.props.helpRoot = 'https://learn.example.com/'; }
     const doc: DocIR = { pageId: 'p', platform: 'madcap', source, frontmatter: { title: 'Release Notes' }, children: ir.children };
     const w = mkdtempSync(join(tmpdir(), 'dai-toclinks-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'madcap', mappings: loadMappings([join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w), flareData: data });
+    const engine = new RulesEngine({ platform: 'madcap', mappings: loadMappings([join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w), flareData: data });
     const target = siteLinkTarget(links);
     // the convert pipeline: retarget, resolve, retarget again
     return { engine, doc, resolved: retargetDocLinks(engine.resolveDoc(retargetDocLinks(doc, target)), target) };

@@ -26,7 +26,7 @@ const dir = resolveSourceTruthDir();
 const truth = loadTruth(dir);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 /** The mapping set the convert stage loads for a Mintlify site: the platform table, then the generic table. */
-const mappingFiles = ['skills/migrate-mintlify/mappings/mintlify.yaml', 'skills/migrate-generic/mappings/generic.yaml'].map((relative) => join(repoRoot, relative));
+const mappingFiles = ['skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml', 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml'].map((relative) => join(repoRoot, relative));
 
 interface Conversion { source: DocIR; resolved: DocIR; dispositions: Disposition[] }
 

@@ -1,8 +1,6 @@
----
-name: report
-description: "Generate the implemented migration report set: gate JSON, Markdown review queue and summary, redirect and anchor JSON, platform-gaps.json for engineering follow-up, and the customer-facing HTML/PDF report of what was migrated and what was not."
----
-# Report
+# The migration report
+
+Generate the implemented migration report set: gate JSON, Markdown review queue and summary, redirect and anchor JSON, platform-gaps.json for engineering follow-up, and the customer-facing HTML/PDF report of what was migrated and what was not.
 
 Run `dai-migrate report` after verification. It summarizes the single machine-readable gate dataset and decision log. Report generation is automatic and is not a separate human gate; final cutover approval remains gate 4/4.
 

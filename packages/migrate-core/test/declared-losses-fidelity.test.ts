@@ -40,7 +40,7 @@ function heading(depth: 1 | 2 | 3 | 4 | 5 | 6, value: string): Block {
   return { id: id(), type: 'heading', depth, children: [{ id: id(), type: 'text', value }] };
 }
 
-/** The declarations at issue, in the shape skills/migrate-gitbook/mappings/gitbook.yaml states them. */
+/** The declarations at issue, in the shape skills/migrate-gitbook-to-documentation-ai/mappings/gitbook.yaml states them. */
 const MAPPINGS: MappingTable[] = [{
   platform: 'gitbook',
   version: 1,

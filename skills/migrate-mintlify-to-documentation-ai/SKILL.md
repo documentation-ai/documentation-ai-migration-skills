@@ -1,8 +1,13 @@
 ---
-name: migrate-mintlify
-description: "Migrate a Mintlify site from its source repository onto Documentation.AI: docs.json or mint.json navigation (versions, languages, tabs, anchors, dropdowns, groups), snippet imports, redirects, group-level OpenAPI, custom heading ids, and a component rename layer. Falls back to scrape-mintlify."
+name: migrate-mintlify-to-documentation-ai
+description: Move a Mintlify site onto Documentation.AI, from its source repository or its live site: docs.json or mint.json navigation (versions, languages, tabs, anchors, dropdowns, groups), snippet imports, redirects, group-level OpenAPI and custom heading ids. Use when asked to migrate, import or move Mintlify documentation.
 ---
-# Migrate Mintlify
+
+# Migrate Mintlify to Documentation.AI
+
+## Start here
+
+Read `references/how-a-migration-runs.md` first, in full. It carries what every migration shares: how to ask a person the four decisions (choices to click, never a sentence to type), the stages in order, the delivery flows, and what the migrator will not guess at. This skill adds only what is specific to Mintlify.
 
 Implemented source preference: **source repository** (`docs.json` or `mint.json`) → live URL acquisition with the Mintlify scrape profile.
 
@@ -26,7 +31,7 @@ A hosted Mintlify site states its own content, and exact mode uses only those st
 - Scans `snippets/`, `components/`, `src/components/` and `custom-blocks/` for component definitions and attaches their hashes to signatures, so custom components cluster per definition.
 
 ## Procedure
-At every gate, ask the way the router skill (`skills/migrate/SKILL.md`, "How you ask" and "Four human gates") says: a short summary, then choices the person can click, first option approves; on approval record it under the name they gave at the start and carry on with the next stages in the same turn. Never ask them to type "approve gate N".
+At every gate, ask the way the shared workflow says (`references/how-a-migration-runs.md`) says: a short summary, then choices the person can click, first option approves; on approval record it under the name they gave at the start and carry on with the next stages in the same turn. Never ask them to type "approve gate N".
 1. `dai-migrate init --workspace <dir> --source <repo> --repo <repo> --platform mintlify (--clone <their clone of the Documentation.AI repository> | --remote <git url>) --template <classic|atlas>` (the delivery flow and the template are agreed with the person first; see the router skill)
 2. `dai-migrate discover` → **human gate 1/4**: review `plan/tree.yaml` (scope, version and locale mapping) and `inventory/platform-meta.json` (missing pages, skipped redirects).
 3. `dai-migrate inventory` → `plan` → **human gate 2/4**: review clusters; custom components and non-literal expressions need a decision.

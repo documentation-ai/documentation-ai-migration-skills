@@ -64,7 +64,7 @@ export interface OfflineRun {
 
 const defaultMappings = (platform: string) => [
   ...(platform === 'generic' ? [] : [join(repoRoot, `skills/migrate-${platform}/mappings/${platform}.yaml`)]),
-  join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml'),
+  join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml'),
 ];
 
 /** acquire → inventory → convert → nav, then a gate runner bound to the finished workspace. */

@@ -104,4 +104,27 @@ describe('a label for a folder the source never named', () => {
     const stated = statedLabelsBySlug([{ type: 'group', label: 'Docs', children: [{ type: 'group', label: 'Help Center', hidden: true, children: [] }] }]);
     expect(labelFromPathSegment('help-center', stated)).toBe('Help Center');
   });
+
+  it('refuses a slug that dropped the letters of its label, so one locale cannot name another\'s folders', () => {
+    // A slug keeps only ASCII: the Chinese "编写 API 文档" reduces to "api" and would otherwise
+    // claim the /api/ folder of every locale, migrating English pages under a Chinese heading.
+    const stated = statedLabelsBySlug([
+      { type: 'group', label: 'API reference', children: [] },
+      { type: 'group', label: '编写 API 文档', children: [] },
+      { type: 'group', label: '文档', children: [] },
+    ]);
+    expect(stated.get('api')).toBeUndefined();
+    expect(stated.get('page')).toBeUndefined();
+    expect(labelFromPathSegment('api', stated)).toBe('API');
+    expect(stated.get('api-reference')).toBe('API reference');
+  });
+
+  it('keeps a transliterated label, which still names its own folder', () => {
+    const stated = statedLabelsBySlug([
+      { type: 'group', label: 'Documentación', children: [] },
+      { type: 'group', label: 'Référence de l’API', children: [] },
+    ]);
+    expect(labelFromPathSegment('documentacion', stated)).toBe('Documentación');
+    expect(labelFromPathSegment('reference-de-l-api', stated)).toBe('Référence de l’API');
+  });
 });

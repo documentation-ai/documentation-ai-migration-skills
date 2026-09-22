@@ -77,7 +77,7 @@ describe('Markdown/MDX → IR', () => {
     ].join('\n');
     const doc = markdownToIr(md + '\n', { platform: 'mintlify', file: 'a.mdx', pageId: 'p' });
     const w = mkdtempSync(join(tmpdir(), 'dai-semantic-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const out = engine.resolveDoc(doc);
     rmSync(w, { recursive: true, force: true });
     const named: Array<{ name: string; props: any }> = [];
@@ -124,7 +124,7 @@ describe('Markdown/MDX → IR', () => {
     ].join('\n');
     const doc = markdownToIr(md + '\n', { platform: 'mintlify', file: 'a.mdx', pageId: 'p' });
     const w = mkdtempSync(join(tmpdir(), 'dai-table-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const out = engine.resolveDoc(doc);
     rmSync(w, { recursive: true, force: true });
     const tables: any[] = [];
@@ -142,7 +142,7 @@ describe('Markdown/MDX → IR', () => {
     // The prose points at the widget ("use the generator below"), so the card takes its position.
     const page = (path: string) => markdownToIr(`Use the generator below.\n\n<VercelJsonGenerator />\n\nAfter that, redeploy.\n`, { platform: 'mintlify', file: path, pageId: path });
     const w = mkdtempSync(join(tmpdir(), 'dai-demo-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const shapes = ['en.mdx', 'fr.mdx', 'es.mdx', 'zh.mdx'].map((path) => {
       const out = engine.resolveDoc(page(path));
       const cards: any[] = [];
@@ -164,7 +164,7 @@ describe('Markdown/MDX → IR', () => {
 
   it('does not lose a card over an icon written as JSX, but still stops on a real expression', () => {
     const w = mkdtempSync(join(tmpdir(), 'dai-expr-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const resolve = (md: string) => engine.resolveDoc(markdownToIr(md, { platform: 'mintlify', file: 'a.mdx', pageId: 'p' }));
     // icon is decoration the card rule drops, so the card and its link survive
     const dropped = resolve('<Card title="Go" href="/docs/go" icon={<svg viewBox="0 0 1 1" />}>\n  Body\n</Card>\n');
@@ -188,7 +188,7 @@ describe('Markdown/MDX → IR', () => {
 
   it('reads raw HTML headings and rules as headings and rules, and never emits module syntax', () => {
     const w = mkdtempSync(join(tmpdir(), 'dai-html-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const out = engine.resolveDoc(markdownToIr('import { X } from "/snippets/x.jsx"\n\n<div className="mt-4 rounded-xl">\n  <h1 className="text-xl">Overview</h1>\n</div>\n\n<hr />\n', { platform: 'mintlify', file: 'a.mdx', pageId: 'p' }));
     rmSync(w, { recursive: true, force: true });
     const kinds: string[] = [];
@@ -234,7 +234,7 @@ describe('Markdown/MDX → IR', () => {
   it('lifts a published heading anchor out of the div that carries it', () => {
     const doc = markdownToIr('<div id="openapi-overlays">\n  ## OpenAPI Overlays\n</div>\n', { platform: 'mintlify', file: 'a.mdx', pageId: 'p' });
     const w = mkdtempSync(join(tmpdir(), 'dai-anchor-')); ensureWorkspace(w);
-    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
     const out = engine.resolveDoc(doc);
     rmSync(w, { recursive: true, force: true });
     const headings: any[] = [];
@@ -258,8 +258,8 @@ describe('Rules engine', () => {
     const ledger = new Ledger(ws);
     const log = new DecisionLog(ws);
     const mappings = loadMappings([
-      join(repoRoot, 'skills/migrate-document360/mappings/document360.yaml'),
-      join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml'),
+      join(repoRoot, 'skills/migrate-document360-to-documentation-ai/mappings/document360.yaml'),
+      join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml'),
     ]);
     const engine = new RulesEngine({ platform: 'document360', mappings, ledger, log });
     const resolved = engine.resolveDoc(doc);
@@ -294,7 +294,7 @@ describe('Rules engine', () => {
   it('is deterministic: same input, same bytes', () => {
     const run = () => {
       const w = mkdtempSync(join(tmpdir(), 'dai-det-')); ensureWorkspace(w);
-      const engine = new RulesEngine({ platform: 'document360', mappings: loadMappings([join(repoRoot, 'skills/migrate-document360/mappings/document360.yaml'), join(repoRoot, 'skills/migrate-generic/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+      const engine = new RulesEngine({ platform: 'document360', mappings: loadMappings([join(repoRoot, 'skills/migrate-document360-to-documentation-ai/mappings/document360.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
       const out = docToMdx(engine.resolveDoc(buildDoc()));
       rmSync(w, { recursive: true, force: true });
       return out;

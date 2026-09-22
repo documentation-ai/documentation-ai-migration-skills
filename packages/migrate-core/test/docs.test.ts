@@ -13,8 +13,8 @@ const read = (path: string) => readFileSync(join(repoRoot, path), 'utf8');
 
 describe('operator documentation', () => {
   it('lists every required gate id in the verify skill', () => {
-    const skill = read('skills/verify/SKILL.md');
-    for (const id of REQUIRED_RELEASE_GATE_IDS) expect(skill, `skills/verify/SKILL.md does not mention gate ${id}`).toContain(`\`${id}\``);
+    const skill = read('references/verifying-a-migration.md');
+    for (const id of REQUIRED_RELEASE_GATE_IDS) expect(skill, `references/verifying-a-migration.md does not mention gate ${id}`).toContain(`\`${id}\``);
     for (const id of EXACT_FAMILY_GATE_IDS) expect(skill, `the exact-fidelity family member ${id} is undocumented`).toContain(id);
   });
 
@@ -24,8 +24,8 @@ describe('operator documentation', () => {
   });
 
   it('requires the immutable release certificate in every platform migration workflow', () => {
-    for (const platform of ['generic', 'mintlify', 'gitbook', 'readme', 'document360']) {
-      expect(read(`skills/migrate-${platform}/SKILL.md`), `${platform} workflow omits the release certificate command`).toContain('`release`');
+    for (const source of ['generic', 'mintlify', 'gitbook', 'readme', 'document360']) {
+      expect(read(`skills/migrate-${source}-to-documentation-ai/SKILL.md`), `${source} workflow omits the release certificate command`).toContain('`release`');
     }
   });
 
@@ -38,7 +38,7 @@ describe('operator documentation', () => {
   });
 
   it('documents exact mode, its stop conditions and the navigation sources where an operator will look', () => {
-    const docs = [read('README.md'), read('docs/STATUS.md'), read('skills/verify/SKILL.md')].join('\n');
+    const docs = [read('README.md'), read('docs/STATUS.md'), read('references/verifying-a-migration.md')].join('\n');
     for (const phrase of ['block-exclusions.yaml', 'llms.txt', 'unlisted', 'preview-routes.json', 'not-run']) {
       expect(docs, `no operator document mentions ${phrase}`).toContain(phrase);
     }

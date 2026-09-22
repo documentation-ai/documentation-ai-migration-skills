@@ -37,7 +37,7 @@ export const TOOLS: ToolDefinition[] = [
   {
     name: 'migration_guide', title: 'Migration guide',
     description: 'Returns the operating guide for migrating a documentation site onto Documentation.AI: the stages in order, the four human gates, the three ways to deliver (git, clone, MCP) and the rules that are never broken. Read it before running anything. Pass a topic to read one of the detailed guides instead.',
-    inputSchema: { type: 'object', properties: { topic: { type: 'string', description: 'Omit for the main guide. Otherwise a skill name, e.g. "verify", "report", "migrate-mintlify", "migrate-gitbook", "migrate-readme", "migrate-document360", "migrate-generic".' } } },
+    inputSchema: { type: 'object', properties: { topic: { type: 'string', description: 'Omit for the main guide. Otherwise "verify", "report", or the source: "mintlify", "gitbook", "readme", "document360", or "generic" for anything else.' } } },
     annotations: { readOnlyHint: true },
   },
   {
@@ -78,13 +78,34 @@ function workspaceOf(value: unknown, pluginRoot: string): string {
   return workspace;
 }
 
+/**
+ * The guide a caller reads before running anything. With no topic it is the
+ * shared workflow; a topic is either one of the two stage guides or a source,
+ * named plainly rather than by the skill's full directory name.
+ */
 function guide(options: McpServerOptions, topic: unknown): string {
+  const references = join(options.pluginRoot, 'references');
   const skills = join(options.pluginRoot, 'skills');
-  const name = typeof topic === 'string' && topic.trim() ? topic.trim() : 'migrate';
-  if (!/^[a-z0-9-]+$/.test(name)) throw new Error('topic must be a skill name such as "verify" or "migrate-gitbook"');
-  const file = join(skills, name, 'SKILL.md');
-  if (!existsSync(file)) throw new Error(`no guide named ${name}; there are: ${readdirSync(skills).filter((entry) => existsSync(join(skills, entry, 'SKILL.md'))).join(', ')}`);
-  const preface = name === 'migrate' ? 'You are driving dai-migrate through this MCP server: where the guide says to run `npx dai-migrate <command> …`, call the migration_run tool with that command and its flags; where it says to read a file, call migration_read. Where it says to ask with choices, offer numbered choices the person can answer with a number, and continue as soon as they answer.\n\n' : '';
+  const name = typeof topic === 'string' && topic.trim() ? topic.trim().toLowerCase() : 'workflow';
+  if (!/^[a-z0-9-]+$/.test(name)) throw new Error('topic must be "verify", "report", or a source such as "gitbook"');
+
+  const stageGuides: Record<string, string> = {
+    workflow: join(references, 'how-a-migration-runs.md'),
+    verify: join(references, 'verifying-a-migration.md'),
+    report: join(references, 'the-migration-report.md'),
+  };
+  const source = name.replace(/^migrate-/, '').replace(/-to-documentation-ai$/, '');
+  const file = stageGuides[name] ?? join(skills, `migrate-${source}-to-documentation-ai`, 'SKILL.md');
+  if (!existsSync(file)) {
+    const sources = readdirSync(skills)
+      .map((entry) => entry.replace(/^migrate-/, '').replace(/-to-documentation-ai$/, ''))
+      .join(', ');
+    throw new Error(`no guide named ${name}; there are: workflow, verify, report, ${sources}`);
+  }
+
+  const preface = name === 'workflow'
+    ? 'You are driving dai-migrate through this MCP server: where the guide says to run `npx dai-migrate <command> …`, call the migration_run tool with that command and its flags; where it says to read a file, call migration_read. Where it says to ask with choices, offer numbered choices the person can answer with a number, and continue as soon as they answer.\n\n'
+    : '';
   return preface + readFileSync(file, 'utf8');
 }
 
