@@ -22,6 +22,6 @@ The earlier design in this file (an API-key presign and confirm pair, plus `cont
 
 ## How to check a deployment
 
-1. `dai-migrate project --workspace <w>`, then `dai-migrate assets --workspace <w> --provider dai-mcp` on a workspace with downloaded assets: every asset `ingested`, and `plan/assets.json` records `org-<id>/doc-<id>/…` storage paths.
+1. `documentation-ai-migrate project --workspace <w>`, then `documentation-ai-migrate assets --workspace <w> --provider dai-mcp` on a workspace with downloaded assets: every asset `ingested`, and `plan/assets.json` records `org-<id>/doc-<id>/…` storage paths.
 2. The dashboard's media library for that project lists them, and its Activity panel names the person who signed in.
 3. Running `assets` again sends nothing.

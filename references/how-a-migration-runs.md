@@ -21,9 +21,9 @@ The person should be able to run a whole migration by clicking. Wherever your en
    - **Template**: "classic (Recommended)" (sidebar layout), "atlas" (denser navigation, content on a card).
    - **Name for the approvals**: the `git config user.name` value first, then "Other".
    Do not ask for the workspace: use `~/migrations/<site-name>` (never inside this plugin directory), say so in one line, and use another folder only if the person says so. For the clone flow, ask for the clone's folder in one plain line afterwards.
-2. Run `dai-migrate init --workspace <path> --source <src> (--clone <folder> | --remote <git url> | neither, for the MCP flow) --template <classic|atlas> [--platform <name>] [--export <archive>]`. `--fidelity exact` is the default and the only mode for a real migration: it certifies the output against the raw acquired source and stops the run rather than shipping a difference. `--target` defaults to `customer-org`; only Documentation.AI's own team passes `demo-org`. A team that migrates for several customers lists the organisations it may write to (`--allowed-orgs`, `MIGRATION_ALLOWED_ORGS`); without a list, a migration may write only to the organisation of the repository named here. `init` proves push access with a dry run that changes nothing. With `DAI_API_KEY` set (the API address defaults to the public platform; `DAI_API_BASE` overrides it) it also checks the project connection, previews and the media API up front; without them those checks are skipped and said so, which is normal for the clone flow. Any failed check stops here with the fix named.
-   **MCP flow only: run `dai-migrate project` straight after `init`.** It opens the person's browser to sign in (tell them to look for it) and records which Documentation.AI project the migration goes into. If it stops and lists several projects, ask which one, with the projects as the options, and run it again with `--project "<name>"`. Doing this first means the person learns now, not after an hour's work, whether their account can edit the project, and it is what files hosted pictures under the right project: `assets` hosts them there through the same sign-in, so it needs the project chosen first. `publish` later signs in again (the sign-in is never stored) and goes to the same project.
-3. Run `dai-migrate fingerprint`. Read `plan/fingerprint.json`: platform, confidence, signals. If confidence < 0.7 or two platforms score close and the user did not already select a platform, ask which platform it is; never guess on hybrid sites. An explicit user platform selection resolves this exception.
+2. Run `documentation-ai-migrate init --workspace <path> --source <src> (--clone <folder> | --remote <git url> | neither, for the MCP flow) --template <classic|atlas> [--platform <name>] [--export <archive>]`. `--fidelity exact` is the default and the only mode for a real migration: it certifies the output against the raw acquired source and stops the run rather than shipping a difference. `--target` defaults to `customer-org`; only Documentation.AI's own team passes `demo-org`. A team that migrates for several customers lists the organisations it may write to (`--allowed-orgs`, `MIGRATION_ALLOWED_ORGS`); without a list, a migration may write only to the organisation of the repository named here. `init` proves push access with a dry run that changes nothing. With `DAI_API_KEY` set (the API address defaults to the public platform; `DAI_API_BASE` overrides it) it also checks the project connection, previews and the media API up front; without them those checks are skipped and said so, which is normal for the clone flow. Any failed check stops here with the fix named.
+   **MCP flow only: run `documentation-ai-migrate project` straight after `init`.** It opens the person's browser to sign in (tell them to look for it) and records which Documentation.AI project the migration goes into. If it stops and lists several projects, ask which one, with the projects as the options, and run it again with `--project "<name>"`. Doing this first means the person learns now, not after an hour's work, whether their account can edit the project, and it is what files hosted pictures under the right project: `assets` hosts them there through the same sign-in, so it needs the project chosen first. `publish` later signs in again (the sign-in is never stored) and goes to the same project.
+3. Run `documentation-ai-migrate fingerprint`. Read `plan/fingerprint.json`: platform, confidence, signals. If confidence < 0.7 or two platforms score close and the user did not already select a platform, ask which platform it is; never guess on hybrid sites. An explicit user platform selection resolves this exception.
 
 ## If the source turns out to be another platform
 
@@ -98,30 +98,30 @@ Gate 4 pins `report/preview-gates.json`, `preview-routes.json` and `responsive.j
 **Pictures** are hosted through the person's sign-in by default (`--provider dai-mcp`): tell them their browser opens, as for `project` and `publish`. Documentation.AI fetches each picture from its public address and the migration checks the size against its captured copy. If `assets` stops listing pictures it could not host, each line says why. Offer the choice with options: "Upload the captured copies with the project API key" (set `DAI_API_KEY` and `DAI_API_BASE`, run `assets` again; it only sends what is left), or "Keep those pictures where they are served today" (`assets --provider none --keep-external --by "<their name>"`, which works while the old site stays online). A re-run never sends a picture twice.
 
 ## Run sequence
-Run every command from the plugin root as `npx dai-migrate <command>`; `dai-migrate` is not installed globally. The plugin root is the folder that holds `skills/` and `packages/`, two levels above this file; it is not the folder the person has open. If it has no `node_modules`, run `npm install` in it once before the first command.
+Run every command from the plugin root as `npx documentation-ai-migrate <command>`; `documentation-ai-migrate` is not installed globally. The plugin root is the folder that holds `skills/` and `packages/`, two levels above this file; it is not the folder the person has open. If it has no `node_modules`, run `npm install` in it once before the first command.
 
-**In a sandboxed agent (Codex and similar)** `npx` cannot write npm's own folder and fails with a read-only file system error. Run the launcher directly instead, from the plugin root: `node packages/migrate-core/bin/dai-migrate.mjs <command> …`. It is the same program. The sandbox must also allow the network (the source is fetched, the branch is pushed, the MCP server is called) and must let the run write the **parent** of the workspace folder (the run keeps a lock file beside the workspace) and, in the clone flow, the person's clone. In Codex that is `codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir <parent of the workspace>`; if a stage stops with `EROFS` or cannot reach a host, say so and ask the person to restart with those options or to approve the command outside the sandbox. Never work around it by moving the workspace inside the plugin.
+**In a sandboxed agent (Codex and similar)** `npx` cannot write npm's own folder and fails with a read-only file system error. Run the launcher directly instead, from the plugin root: `node packages/migrate-core/bin/documentation-ai-migrate.mjs <command> …`. It is the same program. The sandbox must also allow the network (the source is fetched, the branch is pushed, the MCP server is called) and must let the run write the **parent** of the workspace folder (the run keeps a lock file beside the workspace) and, in the clone flow, the person's clone. In Codex that is `codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir <parent of the workspace>`; if a stage stops with `EROFS` or cannot reach a host, say so and ask the person to restart with those options or to approve the command outside the sandbox. Never work around it by moving the workspace inside the plugin.
 
 **Commands that outlast one tool call.** `acquire`, `assets`, `publish` and `verify --preview` can run for many minutes on a large site. Run them in the background where your environment allows it and read their output as it arrives. `publish` also needs the person: it opens their browser for the sign-in and prints the sign-in address first. Tell them before you start it. If no browser can open from where you run (a sandbox, a remote machine), give the person the exact `publish` command to run in their own terminal, wait until they say it finished, then read `report/mcp-publish-result.json` and continue. Either way you never see or handle their sign-in. Every command after `init` takes `--workspace <path>` (or `MIGRATION_WORKSPACE`). Run them in this order; stop at the gate where one is marked.
 
 ```
-dai-migrate init --workspace <path> --source <src> (--clone <folder> | --remote <git url>) --template <classic|atlas>
-dai-migrate project    --workspace <path>          # MCP flow only: sign in, choose the project
-dai-migrate fingerprint --workspace <path>
-dai-migrate discover   --workspace <path>          # → plan/tree.yaml            [human gate 1]
-dai-migrate acquire    --workspace <path>          # live sources only
-dai-migrate inventory  --workspace <path>          # → snapshot/, inventory/
-dai-migrate plan       --workspace <path>          # → plan/*.yaml, plan/site.yaml [human gate 2]
-dai-migrate assets     --workspace <path> [--provider <dai-mcp|dai-api|s3|none|local>]
-dai-migrate convert    --workspace <path>          # run twice, identical inputs
-dai-migrate nav        --workspace <path>          # → output/documentation.json, output/styles/migration.css
-dai-migrate verify     --workspace <path>          # local gates                 [human gate 3]
-dai-migrate write      --workspace <path> --push   # clone/git flow: migration branch + preview
-dai-migrate publish    --workspace <path>          # MCP flow instead: working version + preview
-dai-migrate verify     --workspace <path> --preview [--preview-url <url>]        # [human gate 4]
-dai-migrate accept     --workspace <path> --route <route> --reason "<why>" --by "<who>"   # only a person's decision
-dai-migrate release    --workspace <path>          # → report/release-certificate.json
-dai-migrate report     --workspace <path>
+documentation-ai-migrate init --workspace <path> --source <src> (--clone <folder> | --remote <git url>) --template <classic|atlas>
+documentation-ai-migrate project    --workspace <path>          # MCP flow only: sign in, choose the project
+documentation-ai-migrate fingerprint --workspace <path>
+documentation-ai-migrate discover   --workspace <path>          # → plan/tree.yaml            [human gate 1]
+documentation-ai-migrate acquire    --workspace <path>          # live sources only
+documentation-ai-migrate inventory  --workspace <path>          # → snapshot/, inventory/
+documentation-ai-migrate plan       --workspace <path>          # → plan/*.yaml, plan/site.yaml [human gate 2]
+documentation-ai-migrate assets     --workspace <path> [--provider <dai-mcp|dai-api|s3|none|local>]
+documentation-ai-migrate convert    --workspace <path>          # run twice, identical inputs
+documentation-ai-migrate nav        --workspace <path>          # → output/documentation.json, output/styles/migration.css
+documentation-ai-migrate verify     --workspace <path>          # local gates                 [human gate 3]
+documentation-ai-migrate write      --workspace <path> --push   # clone/git flow: migration branch + preview
+documentation-ai-migrate publish    --workspace <path>          # MCP flow instead: working version + preview
+documentation-ai-migrate verify     --workspace <path> --preview [--preview-url <url>]        # [human gate 4]
+documentation-ai-migrate accept     --workspace <path> --route <route> --reason "<why>" --by "<who>"   # only a person's decision
+documentation-ai-migrate release    --workspace <path>          # → report/release-certificate.json
+documentation-ai-migrate report     --workspace <path>
 ```
 
 A stage that fails stops the run and names what to fix. Never skip a stage to get past a failure, and never hand-edit `output/`: change the plan the stage reads and run it again.
@@ -132,9 +132,9 @@ frozen bytes came from the customer's site. Do **not** start a new workspace and
 again — on a 428-page site that costs about eight minutes of requests per attempt, every time.
 
 ```
-dai-migrate rebase   --workspace <path> --reason "<what the fix changed>"
-dai-migrate discover --workspace <path> --offline   # rebuilds plan/tree.yaml from the frozen bytes
-dai-migrate inventory --workspace <path>            # then continue the sequence as normal
+documentation-ai-migrate rebase   --workspace <path> --reason "<what the fix changed>"
+documentation-ai-migrate discover --workspace <path> --offline   # rebuilds plan/tree.yaml from the frozen bytes
+documentation-ai-migrate inventory --workspace <path>            # then continue the sequence as normal
 ```
 
 `rebase` re-pins the migrator build, records the change in `session.json` so the report shows every

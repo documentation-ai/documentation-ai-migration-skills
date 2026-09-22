@@ -21,7 +21,7 @@ export interface PreviewAcceptance { route: string; reason: string; by: string; 
 export const PREVIEW_ACCEPTANCES_FILE = 'preview-acceptances.yaml';
 
 const HEADER = `# Findings on the rendered preview that a named person reviewed and accepted.
-# Written by: dai-migrate accept --route <route> --reason "<why>" --by "<who>"
+# Written by: documentation-ai-migrate accept --route <route> --reason "<why>" --by "<who>"
 # Remove an entry to have verify --preview report that route again.
 `;
 

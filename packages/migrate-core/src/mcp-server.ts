@@ -1,5 +1,5 @@
 /**
- * `dai-migrate mcp`: the migrator as a local MCP server, for any host that speaks the protocol.
+ * `documentation-ai-migrate mcp`: the migrator as a local MCP server, for any host that speaks the protocol.
  *
  * The skills in this repository drive the CLI from an agent that has a shell (Claude Code, Codex).
  * A desktop chat host has no shell of its own, but it can start a local MCP server and call its
@@ -48,7 +48,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: 'migration_run', title: 'Run a migration stage',
-    description: 'Runs one dai-migrate command in a workspace and returns what it printed. Stages stop and name what to fix rather than guess; never work around a stopped stage. `approve` and `accept` record a decision a named person made: call them only after that person has reviewed what the gate asks for and said yes, with their name in --by. `publish` opens the person\'s browser so they can sign in to Documentation.AI; tell them to look for it before you call it.',
+    description: 'Runs one documentation-ai-migrate command in a workspace and returns what it printed. Stages stop and name what to fix rather than guess; never work around a stopped stage. `approve` and `accept` record a decision a named person made: call them only after that person has reviewed what the gate asks for and said yes, with their name in --by. `publish` opens the person\'s browser so they can sign in to Documentation.AI; tell them to look for it before you call it.',
     inputSchema: {
       type: 'object', required: ['command', 'workspace'],
       properties: {
@@ -104,7 +104,7 @@ function guide(options: McpServerOptions, topic: unknown): string {
   }
 
   const preface = name === 'workflow'
-    ? 'You are driving dai-migrate through this MCP server: where the guide says to run `npx dai-migrate <command> …`, call the migration_run tool with that command and its flags; where it says to read a file, call migration_read. Where it says to ask with choices, offer numbered choices the person can answer with a number, and continue as soon as they answer.\n\n'
+    ? 'You are driving documentation-ai-migrate through this MCP server: where the guide says to run `npx documentation-ai-migrate <command> …`, call the migration_run tool with that command and its flags; where it says to read a file, call migration_read. Where it says to ask with choices, offer numbered choices the person can answer with a number, and continue as soon as they answer.\n\n'
     : '';
   return preface + readFileSync(file, 'utf8');
 }
@@ -160,10 +160,10 @@ function run(options: McpServerOptions, command: unknown, workspace: string, arg
     let output = '';
     const keep = (chunk: Buffer): void => { output += chunk.toString('utf8'); if (output.length > MAX_OUTPUT * 4) output = output.slice(-MAX_OUTPUT * 2); };
     child.stdout.on('data', keep); child.stderr.on('data', keep);
-    child.on('error', (error) => done(`could not start dai-migrate: ${error.message}`));
+    child.on('error', (error) => done(`could not start documentation-ai-migrate: ${error.message}`));
     child.on('close', (code) => {
       const shown = output.length > MAX_OUTPUT ? `[… earlier output left out]\n${output.slice(-MAX_OUTPUT)}` : output;
-      done(`${shown.trim()}\n\n[dai-migrate ${command} exited with code ${code ?? 'unknown'}${code === 2 ? ': findings were recorded; read report/review-queue.md' : code ? ': the stage stopped; fix what it names and run it again' : ''}]`);
+      done(`${shown.trim()}\n\n[documentation-ai-migrate ${command} exited with code ${code ?? 'unknown'}${code === 2 ? ': findings were recorded; read report/review-queue.md' : code ? ': the stage stopped; fix what it names and run it again' : ''}]`);
     });
   });
 }
@@ -178,7 +178,7 @@ export async function handleMessage(options: McpServerOptions, message: { id?: u
       return reply({
         protocolVersion: typeof asked === 'string' && PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
         capabilities: { tools: {}, prompts: {} },
-        serverInfo: { name: 'dai-migrate', title: 'Documentation.AI migrator', version: options.version },
+        serverInfo: { name: 'documentation-ai-migrate', title: 'Documentation.AI migrator', version: options.version },
         instructions: 'Migrates a documentation site onto Documentation.AI exactly. Call migration_guide first and follow it: stages run in order through migration_run, and four human gates are decisions a named person makes, never the assistant.',
       });
     }

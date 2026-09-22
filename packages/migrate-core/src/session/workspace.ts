@@ -127,9 +127,9 @@ export function defaultWorkspaceRoot(): string {
   const env = process.env.MIGRATION_WORKSPACE_ROOT;
   if (env) return env;
   const home = homedir();
-  if (osPlatform() === 'darwin') return join(home, 'Library', 'Application Support', 'dai-migrate');
-  if (osPlatform() === 'win32') return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'dai-migrate');
-  return join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'dai-migrate');
+  if (osPlatform() === 'darwin') return join(home, 'Library', 'Application Support', 'documentation-ai-migrate');
+  if (osPlatform() === 'win32') return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'documentation-ai-migrate');
+  return join(process.env.XDG_DATA_HOME ?? join(home, '.local', 'share'), 'documentation-ai-migrate');
 }
 
 /** Refuse a workspace that sits inside the plugin repository. */
@@ -157,10 +157,10 @@ export function sessionPath(workspace: string): string {
 
 export function readSession(workspace: string): Session {
   const p = sessionPath(workspace);
-  if (!existsSync(p)) throw new Error(`No session at ${p}. Run "dai-migrate init" first.`);
+  if (!existsSync(p)) throw new Error(`No session at ${p}. Run "documentation-ai-migrate init" first.`);
   const session = JSON.parse(readFileSync(p, 'utf8')) as Session;
   const problem = migratorProvenanceProblem(session.migrator);
-  if (problem) throw new Error(`${p} has no usable migrator provenance (${problem}): it was created by a migrator build that predates provenance pinning, or the file was edited. Re-run "dai-migrate init" with this migrator.`);
+  if (problem) throw new Error(`${p} has no usable migrator provenance (${problem}): it was created by a migrator build that predates provenance pinning, or the file was edited. Re-run "documentation-ai-migrate init" with this migrator.`);
   return session;
 }
 

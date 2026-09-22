@@ -124,7 +124,7 @@ export async function signInWithBrowser(options: SignInOptions): Promise<SignedI
     const scope = (discovery.scopes.length ? discovery.scopes : ['profile', 'email']).join(' ');
     const registered = await fetchImpl(discovery.registrationEndpoint, {
       method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, signal: AbortSignal.timeout(30_000),
-      body: JSON.stringify({ client_name: options.clientName ?? 'Documentation.AI migrator (dai-migrate)', redirect_uris: [redirectUri], grant_types: ['authorization_code'], response_types: ['code'], token_endpoint_auth_method: 'none', scope }),
+      body: JSON.stringify({ client_name: options.clientName ?? 'Documentation.AI migrator (documentation-ai-migrate)', redirect_uris: [redirectUri], grant_types: ['authorization_code'], response_types: ['code'], token_endpoint_auth_method: 'none', scope }),
     });
     if (!registered.ok) throw new Error(`the authorization server refused to register this command line (HTTP ${registered.status}): ${(await registered.text()).slice(0, 200)}`);
     const client = await registered.json() as { client_id?: string; client_secret?: string };

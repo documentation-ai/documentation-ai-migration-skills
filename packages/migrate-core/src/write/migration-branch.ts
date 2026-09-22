@@ -82,7 +82,7 @@ export function writeMigrationBranch(opts: WriteOptions): { branch: string; comm
 
   // Build in an isolated git worktree. The operator's checkout, current branch,
   // untracked files and in-progress edits remain untouched.
-  const tempRoot = mkdtempSync(join(tmpdir(), 'dai-migrate-write-'));
+  const tempRoot = mkdtempSync(join(tmpdir(), 'documentation-ai-migrate-write-'));
   const worktree = join(tempRoot, 'checkout');
   let added = false;
   try {
@@ -91,7 +91,7 @@ export function writeMigrationBranch(opts: WriteOptions): { branch: string; comm
     clearTree(worktree);
     cpSync(opts.outputDir, worktree, { recursive: true, filter: (src) => !src.split(/[\\/]/).includes('.git') });
     git(worktree, ['add', '-A']);
-    const env = { GIT_AUTHOR_NAME: opts.authorName ?? 'dai-migrate', GIT_AUTHOR_EMAIL: opts.authorEmail ?? 'migrations@documentation.ai', GIT_COMMITTER_NAME: opts.authorName ?? 'dai-migrate', GIT_COMMITTER_EMAIL: opts.authorEmail ?? 'migrations@documentation.ai' };
+    const env = { GIT_AUTHOR_NAME: opts.authorName ?? 'documentation-ai-migrate', GIT_AUTHOR_EMAIL: opts.authorEmail ?? 'migrations@documentation.ai', GIT_COMMITTER_NAME: opts.authorName ?? 'documentation-ai-migrate', GIT_COMMITTER_EMAIL: opts.authorEmail ?? 'migrations@documentation.ai' };
     execFileSync('git', ['commit', '--quiet', '--allow-empty', '-m', opts.message ?? `chore(migration): import session ${opts.sessionId}`], { cwd: worktree, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     const commit = git(worktree, ['rev-parse', 'HEAD']);
     let pushed = false;

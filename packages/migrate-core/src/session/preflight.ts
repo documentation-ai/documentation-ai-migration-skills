@@ -72,7 +72,7 @@ export function pushFix(transport: PushProbe['transport'], stderr: string): stri
 export async function probePushAccess(remote: string): Promise<PushProbe> {
   const transport: PushProbe['transport'] = /^https?:\/\//.test(remote) ? 'https' : /^(?:ssh:\/\/|[\w.-]+@[^:]+:)/.test(remote) ? 'ssh' : 'other';
   const dir = mkdtempSync(join(tmpdir(), 'dai-push-probe-'));
-  const probeRef = `refs/heads/dai-migrate-preflight-probe-${randomBytes(6).toString('hex')}`;
+  const probeRef = `refs/heads/documentation-ai-migrate-preflight-probe-${randomBytes(6).toString('hex')}`;
   try {
     await execFileAsync('git', ['init', '-q'], { cwd: dir });
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new' };

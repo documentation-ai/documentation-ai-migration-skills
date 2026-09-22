@@ -64,7 +64,7 @@ export function fetchRenderer(options: { timeoutMs?: number; attempts?: number; 
     let url = new URL(start);
     for (let hop = 0; hop < 6; hop++) {
       await guard(url);
-      const response = await fetch(url, { redirect: 'manual', headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': 'dai-migrate preview verification', ...options.headers }, signal: AbortSignal.timeout(options.timeoutMs ?? 45_000) });
+      const response = await fetch(url, { redirect: 'manual', headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': 'documentation-ai-migrate preview verification', ...options.headers }, signal: AbortSignal.timeout(options.timeoutMs ?? 45_000) });
       const location = response.status >= 300 && response.status < 400 ? response.headers.get('location') : null;
       if (!location) return response;
       url = new URL(location, url);
@@ -750,7 +750,7 @@ export async function runBrowserContentGate(
       id: 'browser-content',
       status: failed.length ? 'fail' : 'pass',
       detail: failed.length
-        ? `${failed.length} of ${routes.length} preview routes are missing something a reader would look for (a page that does not load, source text or a heading that is not on it, a link into nothing)${acceptedNote}; look at each on the preview, then fix it or record it with: dai-migrate accept --route <route> --reason "<why>" --by "<who>"`
+        ? `${failed.length} of ${routes.length} preview routes are missing something a reader would look for (a page that does not load, source text or a heading that is not on it, a link into nothing)${acceptedNote}; look at each on the preview, then fix it or record it with: documentation-ai-migrate accept --route <route> --reason "<why>" --by "<who>"`
         : `every one of ${routes.length} preview routes loads and carries its source's text, headings and links${acceptedNote}${noted.length ? `; ${noted.length} differ only in how the platform draws them (report/preview-routes.json)` : ''}`,
       count: failed.length,
       samples: failed.slice(0, 8).map((entry) => `${entry.route}: ${entry.problems[0]}`),

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dai-migrate: stage commands over an external workspace.
+ * documentation-ai-migrate: stage commands over an external workspace.
  *
  *   init → fingerprint → discover [human 1/4] → acquire → inventory → plan [human 2/4]
  *   → assets → convert ×2 → nav → verify [human 3/4] → push preview
@@ -134,7 +134,7 @@ function fail(msg: string): never { console.error(`✖ ${redact(msg)}`); process
 function ok(msg: string) { console.log(`✔ ${msg}`); }
 function humanGate(number: 1 | 2 | 3 | 4, name: string, review: string): void {
   console.log(`⏸ HUMAN GATE ${number}/4 — ${name}: ${review}`);
-  console.log(`   record the decision with: dai-migrate approve --gate ${number} --by "<who approved it>"`);
+  console.log(`   record the decision with: documentation-ai-migrate approve --gate ${number} --by "<who approved it>"`);
 }
 function readSensitive(path: string): string {
   const resolved = resolve(path);
@@ -366,7 +366,7 @@ function assertReadyToSend(workspace: string, s: Session, flag: '--push' | 'publ
   // pre-push validation itself: its findings are reported, never a reason to withhold the
   // preview from the person who spent the hours producing it. Release (gate 4) still is.
   const unapproved = releaseApprovalProblems(workspace, s, 2);
-  if (unapproved.length) fail(`${flag} refused until scope and plan are approved:\n${unapproved.map((problem) => `  ${problem}`).join('\n')}\napprove with: dai-migrate approve --gate <n> --by "<who approved it>"`);
+  if (unapproved.length) fail(`${flag} refused until scope and plan are approved:\n${unapproved.map((problem) => `  ${problem}`).join('\n')}\napprove with: documentation-ai-migrate approve --gate <n> --by "<who approved it>"`);
   const gate3 = releaseApprovalProblems(workspace, s, 3).filter((problem) => !unapproved.includes(problem));
   if (gate3.length) console.log(`· sending before gate 3 was signed off (${gate3.length} approval note(s) recorded in report/pushed-with-findings.json); the preview is for review, not release`);
   const gateFile = join(workspace, 'report', 'gates.json');
@@ -907,7 +907,7 @@ async function main() {
         const profile = getProfile(tree.platform);
         for (const p of inScope) {
           const cached = acquiredPath(workspace, p.id);
-          if (!existsSync(cached)) fail(`acquired page missing for ${p.source}; run dai-migrate acquire first`);
+          if (!existsSync(cached)) fail(`acquired page missing for ${p.source}; run documentation-ai-migrate acquire first`);
           const page = readJson<AcquiredPage>(cached);
           if (page.markdown) {
             // The declared description (llms.txt, then platform metadata) is what the published .md's leading blockquote must equal to leave the body.
@@ -926,7 +926,7 @@ async function main() {
             docs.push(named(p.source, () => markdownToIr(published.body, { platform: tree.platform, file: p.source, pageId: p.id, title, frontmatter: { title, ...(description ? { description } : {}), ...seo }, codeMetaStrip: profile.codeMetaStrip })));
           }
           else {
-            if (page.html === undefined) fail(`acquired record for ${p.source} holds neither published Markdown nor HTML; run dai-migrate acquire again`);
+            if (page.html === undefined) fail(`acquired record for ${p.source} holds neither published Markdown nor HTML; run documentation-ai-migrate acquire again`);
             const ir = htmlToIr(page.html, htmlAdapterOptions(profile, { platform: tree.platform, file: p.source }));
             // A Flare tile menu names its table of contents relative to the page's help system; the
             // absolute address is what convert reads it under.
@@ -1181,7 +1181,7 @@ async function main() {
       let mcpClient: McpClient | undefined;
       if (provider === 'dai-mcp') {
         const apiKey = process.env.DAI_API_KEY;
-        if (!apiKey && !s.target.documentationId) fail(`the project these pictures go into is not chosen yet. Choose it first: dai-migrate project --workspace ${workspace}`);
+        if (!apiKey && !s.target.documentationId) fail(`the project these pictures go into is not chosen yet. Choose it first: documentation-ai-migrate project --workspace ${workspace}`);
         const mcpUrl = process.env.DAI_MCP_URL ?? DEFAULT_MCP_URL;
         let token = apiKey;
         if (!token) {
@@ -1205,7 +1205,7 @@ async function main() {
         // not something the environment knows: left to DAI_DOCUMENTATION_ID, a real run filed one
         // project's 44 pictures under another project's folder.
         const mcpFlow = !s.target.repoRemote && !s.target.cloneDir && !process.env.DAI_API_KEY;
-        if (mcpFlow && !s.target.documentationId) fail(`the project this migration goes into is not chosen yet, so the pictures would be filed under whichever project DAI_DOCUMENTATION_ID names. Choose it first: dai-migrate project --workspace ${workspace}`);
+        if (mcpFlow && !s.target.documentationId) fail(`the project this migration goes into is not chosen yet, so the pictures would be filed under whichever project DAI_DOCUMENTATION_ID names. Choose it first: documentation-ai-migrate project --workspace ${workspace}`);
         const fromSession = !!s.target.organizationId && !!s.target.documentationId;
         console.log(`· pictures are stored under org-${providerOptions.s3!.organizationId}/doc-${providerOptions.s3!.documentationId} (${fromSession ? `the project chosen for this migration${s.target.projectName ? `, "${s.target.projectName}"` : ''}` : 'from DAI_ORGANIZATION_ID and DAI_DOCUMENTATION_ID'})`);
         const problems = s3StorageProblems(providerOptions.s3!);
@@ -1549,7 +1549,7 @@ async function main() {
         if (!process.env.DAI_API_KEY || !s.target.apiBase) {
           console.log(`· the push starts a preview build on Documentation.AI by itself. No API key is configured, so its address is not looked up from here:`);
           console.log(`  open your project's dashboard → Deployments → Preview, copy the preview URL of ${r.branch} once it is ready, then run`);
-          console.log(`  dai-migrate verify --workspace ${workspace} --preview-url <that URL>`);
+          console.log(`  documentation-ai-migrate verify --workspace ${workspace} --preview-url <that URL>`);
         }
         else {
           const api = new DaiClient({ baseUrl: s.target.apiBase, apiKey: process.env.DAI_API_KEY });
@@ -1562,7 +1562,7 @@ async function main() {
             s.target.previewUrl = res.deployment.url.startsWith('http') ? res.deployment.url : `https://${res.deployment.url}`;
             s.target.previewDeploymentId = res.deployment.deploymentId; s.target.previewsSeen = true; writeSession(workspace, s);
             ok(`preview ready: ${s.target.previewUrl}`);
-            console.log(`  next: dai-migrate verify --workspace ${workspace} --preview`);
+            console.log(`  next: documentation-ai-migrate verify --workspace ${workspace} --preview`);
           } else if (res.outcome === 'error' || res.outcome === 'cancelled') {
             fail(`preview deployment ${res.deployment?.deploymentId ?? ''} ended with status ${res.outcome}; open it in the dashboard Deployments list for the build log`);
           } else if (res.firstSeenMs !== undefined) {
@@ -1855,7 +1855,7 @@ async function main() {
       // with yet: the MCP server does not return preview addresses, so the person reads it from the dashboard.
       if (!apiKey) {
         console.log(`  · Documentation.AI is building a preview of ${result.branch}. Open the project in the dashboard, switch to the working version ${result.branch}, and copy the preview address from the Save menu (or from Deployments → Preview) once it is ready, then run`);
-        console.log(`    dai-migrate verify --workspace ${workspace} --preview-url <that address>`);
+        console.log(`    documentation-ai-migrate verify --workspace ${workspace} --preview-url <that address>`);
       } else if (!v['no-wait']) {
         const apiBase = (s.target.apiBase ?? process.env.DAI_API_BASE ?? new URL(mcpUrl).origin).replace(/\/$/, '');
         const api = new DaiClient({ baseUrl: apiBase, apiKey });
@@ -1873,7 +1873,7 @@ async function main() {
           s.target.previewUrl = res.deployment.url.startsWith('http') ? res.deployment.url : `https://${res.deployment.url}`;
           s.target.previewDeploymentId = res.deployment.deploymentId; s.target.apiBase ??= apiBase; writeSession(workspace, s);
           ok(`preview ready: ${s.target.previewUrl}`);
-          console.log(`  next: dai-migrate verify --workspace ${workspace} --preview`);
+          console.log(`  next: documentation-ai-migrate verify --workspace ${workspace} --preview`);
         } else console.log(`  · the preview was not ready within ${minutes} min (${res.outcome}); read its address from the dashboard → Deployments → Preview and run verify --preview-url <address>`);
       }
       console.log(`  to go live after review and release: merge the working version ${result.branch} into the live version in the dashboard (or ask your agent to call merge_branches on the Authoring MCP server)`);
@@ -1886,7 +1886,7 @@ async function main() {
       const routes = (v.route ?? []).flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean);
       if (!routes.length) {
         const recorded = readPreviewAcceptances(workspace);
-        if (!recorded.length) console.log('no preview findings have been accepted; record one with: dai-migrate accept --route <route> --reason "<why>" --by "<who>"');
+        if (!recorded.length) console.log('no preview findings have been accepted; record one with: documentation-ai-migrate accept --route <route> --reason "<why>" --by "<who>"');
         for (const entry of recorded) console.log(`  ${entry.route}: accepted by ${entry.by}${entry.at ? ` on ${entry.at.slice(0, 10)}` : ''} — ${entry.reason}`);
         break;
       }

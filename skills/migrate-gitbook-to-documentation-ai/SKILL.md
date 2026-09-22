@@ -22,8 +22,8 @@ Implemented source preference: **Git Sync repository** → live URL acquisition 
 
 ## Procedure
 At every gate, ask the way the shared workflow says (`references/how-a-migration-runs.md`) says: a short summary, then choices the person can click, first option approves; on approval record it under the name they gave at the start and carry on with the next stages in the same turn. Never ask them to type "approve gate N".
-1. `dai-migrate init ... --repo <git-sync-repo> --platform gitbook`
-2. `dai-migrate discover` → **human gate 1/4**: review `plan/tree.yaml` and decide what to do with unlisted files (`inventory/platform-meta.json`).
+1. `documentation-ai-migrate init ... --repo <git-sync-repo> --platform gitbook`
+2. `documentation-ai-migrate discover` → **human gate 1/4**: review `plan/tree.yaml` and decide what to do with unlisted files (`inventory/platform-meta.json`).
 3. `inventory` → `plan` → **human gate 2/4** → `assets` → `convert` twice → `nav` → local `verify` → **human gate 3/4** → `write --push` (or `publish` in the MCP flow) → `verify --preview` → **human gate 4/4** → `release` (writes the immutable cutover certificate) → `report`.
 
 Not implemented: GitBook API export, variants and sections from `gitbook-docs.yaml` (map manually to versions and tabs in `plan/tree.yaml`), drawings, math, conditional content (T7 candidates).

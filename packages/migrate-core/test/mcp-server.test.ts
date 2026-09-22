@@ -1,5 +1,5 @@
 /**
- * `dai-migrate mcp` serves the migrator to hosts that have no shell of their own. It is a door onto
+ * `documentation-ai-migrate mcp` serves the migrator to hosts that have no shell of their own. It is a door onto
  * the CLI and nothing more, so what matters is what the door refuses: a workspace inside the plugin,
  * a command that is not a stage, a word smuggled in as a second workspace, a file that is not
  * review material. Everything a stage itself refuses is the CLI's to refuse, and is tested there.
@@ -21,7 +21,7 @@ const call = async (name: string, args: Record<string, unknown>): Promise<{ text
 describe('the migrator as a local MCP server', () => {
   it('introduces itself, lists its four tools, and answers nothing to a notification', async () => {
     const hello = await handleMessage(options, { id: 0, method: 'initialize', params: { protocolVersion: '2025-03-26' } }) as { result: { protocolVersion: string; serverInfo: { name: string }; instructions: string } };
-    expect(hello.result).toMatchObject({ protocolVersion: '2025-03-26', serverInfo: { name: 'dai-migrate' } });
+    expect(hello.result).toMatchObject({ protocolVersion: '2025-03-26', serverInfo: { name: 'documentation-ai-migrate' } });
     expect(hello.result.instructions).toContain('migration_guide');
     expect(await handleMessage(options, { method: 'notifications/initialized' })).toBeUndefined();
     const listed = await handleMessage(options, { id: 2, method: 'tools/list' }) as { result: { tools: Array<{ name: string }> } };

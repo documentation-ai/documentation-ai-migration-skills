@@ -6,7 +6,7 @@
  */
 import { parseArgs } from 'node:util';
 
-export const HELP = `dai-migrate <command> [options]
+export const HELP = `documentation-ai-migrate <command> [options]
 
 Commands (run in order; the workflow has exactly four standard human gates):
   init         --workspace <dir> --source <url|path> (--clone <dir> | --remote <git url>) [--platform p] [--export <zip|dir>] [--fidelity exact|permissive] [--template classic|atlas] [--target customer-org|demo-org] [--allowed-orgs a,b] [--customer-authorised]
@@ -79,7 +79,7 @@ Commands (run in order; the workflow has exactly four standard human gates):
 
   mcp                                                                serves the migrator to any MCP host over stdio (Claude Desktop, Cursor, VS Code, Codex…):
                tools migration_guide, migration_status, migration_run, migration_read. Add it to the host as the command
-               "npx dai-migrate mcp" run from this repository.
+               "npx documentation-ai-migrate mcp" run from this repository.
 
 Every command except init and mcp takes --workspace <dir> (or MIGRATION_WORKSPACE).`;
 

@@ -284,7 +284,7 @@ export class Fetcher {
           const m = line.match(/^([A-Za-z-]+)\s*:\s*(.*)$/);
           if (!m) continue;
           const [, k, v] = m;
-          if (k.toLowerCase() === 'user-agent') applies = v.trim() === '*' || v.toLowerCase().includes('dai-migrate');
+          if (k.toLowerCase() === 'user-agent') applies = v.trim() === '*' || v.toLowerCase().includes('documentation-ai-migrate');
           else if (applies && k.toLowerCase() === 'disallow' && v.trim()) disallow.push(v.trim());
         }
       }
@@ -294,7 +294,7 @@ export class Fetcher {
     return !rules.some((r) => url.pathname.startsWith(r.replace(/\*$/, '')));
   }
 
-  private ua() { return this.opts.userAgent ?? 'Mozilla/5.0 (compatible; dai-migrate/0.1; +https://documentation.ai)'; }
+  private ua() { return this.opts.userAgent ?? 'Mozilla/5.0 (compatible; documentation-ai-migrate/0.1; +https://documentation.ai)'; }
 
   async get(url: string, opts: { useCache?: boolean } = {}): Promise<FetchedPage> {
     const cached = opts.useCache !== false ? this.readCache(url) : undefined;

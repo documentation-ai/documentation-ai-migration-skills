@@ -16,7 +16,7 @@ around a stopped stage. Never hand-edit `output/`. Never weaken or skip a gate t
 make a run finish.
 
 When you fix this plugin part-way through a migration, do not start a new workspace and crawl the
-source again: run `dai-migrate rebase --reason "<what changed>"` then `dai-migrate discover
+source again: run `documentation-ai-migrate rebase --reason "<what changed>"` then `documentation-ai-migrate discover
 --offline`. The frozen bytes are the customer's, not ours, so a fix to our code stales only what we
 derived from them. See "After fixing the migrator mid-run" in `references/how-a-migration-runs.md`.
 
@@ -28,31 +28,31 @@ Follow `references/how-a-migration-runs.md`, then the skill for the source
 states what its adapter recovers and where it stops.
 
 The skills orchestrate a deterministic CLI; they do not convert anything themselves.
-Invoke it from the repository root as `npm run dai-migrate -- <command>` or `npx dai-migrate <command>`;
+Invoke it from the repository root as `npm run documentation-ai-migrate -- <command>` or `npx documentation-ai-migrate <command>`;
 it is not installed globally. In a sandbox where npm cannot write its own folder (Codex), run the
-launcher directly, `node packages/migrate-core/bin/dai-migrate.mjs <command>`, with the network
+launcher directly, `node packages/migrate-core/bin/documentation-ai-migrate.mjs <command>`, with the network
 allowed and the parent of the workspace folder writable
 (`codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir <folder>`).
 The full ordered command sequence is in `references/how-a-migration-runs.md` under "Run sequence".
 In short:
 
 ```
-npm run dai-migrate -- init --workspace <path> --source <url|path> (--clone <folder> | --remote <git url>) --template <classic|atlas>
-npm run dai-migrate -- project     --workspace <path>     # MCP flow only: sign in, choose the project
-npm run dai-migrate -- fingerprint --workspace <path>
-npm run dai-migrate -- discover    --workspace <path>     # human gate 1
-npm run dai-migrate -- acquire     --workspace <path>
-npm run dai-migrate -- inventory   --workspace <path>
-npm run dai-migrate -- plan        --workspace <path>     # human gate 2 (includes plan/site.yaml, the site's look)
-npm run dai-migrate -- assets      --workspace <path> [--provider <dai-mcp|dai-api|s3|none|local>]
-npm run dai-migrate -- convert     --workspace <path>     # twice
-npm run dai-migrate -- nav         --workspace <path>
-npm run dai-migrate -- verify      --workspace <path>     # human gate 3
-npm run dai-migrate -- write       --workspace <path> --push      # clone or git flow
-npm run dai-migrate -- publish     --workspace <path>             # MCP flow instead (browser sign-in; no git, no key)
-npm run dai-migrate -- verify      --workspace <path> --preview [--preview-url <url>]   # human gate 4
-npm run dai-migrate -- release     --workspace <path>              # immutable four-gate certificate
-npm run dai-migrate -- report      --workspace <path>
+npm run documentation-ai-migrate -- init --workspace <path> --source <url|path> (--clone <folder> | --remote <git url>) --template <classic|atlas>
+npm run documentation-ai-migrate -- project     --workspace <path>     # MCP flow only: sign in, choose the project
+npm run documentation-ai-migrate -- fingerprint --workspace <path>
+npm run documentation-ai-migrate -- discover    --workspace <path>     # human gate 1
+npm run documentation-ai-migrate -- acquire     --workspace <path>
+npm run documentation-ai-migrate -- inventory   --workspace <path>
+npm run documentation-ai-migrate -- plan        --workspace <path>     # human gate 2 (includes plan/site.yaml, the site's look)
+npm run documentation-ai-migrate -- assets      --workspace <path> [--provider <dai-mcp|dai-api|s3|none|local>]
+npm run documentation-ai-migrate -- convert     --workspace <path>     # twice
+npm run documentation-ai-migrate -- nav         --workspace <path>
+npm run documentation-ai-migrate -- verify      --workspace <path>     # human gate 3
+npm run documentation-ai-migrate -- write       --workspace <path> --push      # clone or git flow
+npm run documentation-ai-migrate -- publish     --workspace <path>             # MCP flow instead (browser sign-in; no git, no key)
+npm run documentation-ai-migrate -- verify      --workspace <path> --preview [--preview-url <url>]   # human gate 4
+npm run documentation-ai-migrate -- release     --workspace <path>              # immutable four-gate certificate
+npm run documentation-ai-migrate -- report      --workspace <path>
 ```
 
 Three ways to deliver, chosen with the person at the start: the **clone flow** (`init --clone

@@ -72,7 +72,7 @@ export function writeCutoverArtifacts(workspace: string, input: { tree: Tree; ur
 
 ## After cutover
 
-- Run dai-migrate canary and retain report/search-canary.json.
+- Run documentation-ai-migrate canary and retain report/search-canary.json.
 - Monitor 404s, redirect loops, crawl errors and search traffic daily during the coexistence period.
 - Roll back routing if critical pages, authentication, assets or search are unavailable.
 - Keep redirects for at least ${input.seo.redirectRetentionDays} days; permanent retention is preferable.

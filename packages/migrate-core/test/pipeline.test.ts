@@ -315,7 +315,7 @@ describe('safety policies', () => {
     expect(remoteOrg('ssh://git@github.com/acme-docs/site.git')).toEqual({ host: 'github.com', org: 'acme-docs' });
     expect(() => assertRemoteAllowed('https://github.com/someone/personal.git', ['acme-docs', 'documentation-ai'])).toThrow(/not in the allowed list/);
     expect(() => assertOutsidePlugin('/repo/plugin/runs/x', '/repo/plugin')).toThrow(/inside the plugin/);
-    expect(() => assertOutsidePlugin('/home/u/.local/share/dai-migrate/x', '/repo/plugin')).not.toThrow();
+    expect(() => assertOutsidePlugin('/home/u/.local/share/documentation-ai-migrate/x', '/repo/plugin')).not.toThrow();
   });
   it('keeps Firecrawl pagination credentials on the configured API origin', () => {
     expect(firecrawlStatusUrl('https://api.firecrawl.dev', '/v2/batch/scrape/job-1?cursor=2')).toBe('https://api.firecrawl.dev/v2/batch/scrape/job-1?cursor=2');

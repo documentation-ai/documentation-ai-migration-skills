@@ -106,7 +106,7 @@ export class McpClient {
   async connect(): Promise<void> {
     const result = await this.request('initialize', {
       protocolVersion: PROTOCOL_VERSION, capabilities: {},
-      clientInfo: { name: this.options.clientName ?? 'dai-migrate', version: this.options.clientVersion ?? '0' },
+      clientInfo: { name: this.options.clientName ?? 'documentation-ai-migrate', version: this.options.clientVersion ?? '0' },
     }) as { serverInfo?: { name?: string; version?: string } } | undefined;
     this.serverInfo = result?.serverInfo ?? {};
     await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, false);

@@ -63,7 +63,7 @@ describe('what the rendered-preview check fails, notes and accepts', () => {
     expect(prose.routes[0]).toMatchObject({ status: 'fail', problems: ['not on the rendered page: “rotate the key every ninety days.”'] });
     const code = await runBrowserContentGate('https://preview.example/', [page], { render: async () => html('<p>Rotate the key every ninety days.</p>') });
     expect(code.routes[0].status).toBe('fail');
-    expect(code.gate.detail).toContain('dai-migrate accept --route');
+    expect(code.gate.detail).toContain('documentation-ai-migrate accept --route');
   });
 
   it('does not ask the preview for a page no navigation entry names: that was decided, and reported, at nav', async () => {
@@ -107,7 +107,7 @@ describe('recording who accepted a preview finding', () => {
       { route: 'docs/keys', reason: 'the platform rewrites this example', by: 'Asha Rao', at: '2026-09-17T01:00:00.000Z' },
       { route: 'docs/pets', reason: 'the platform rewrites this example', by: 'Asha Rao', at: '2026-09-17T01:00:00.000Z' },
     ]);
-    expect(readFileSync(join(workspace, 'plan', 'preview-acceptances.yaml'), 'utf8')).toContain('dai-migrate accept --route');
+    expect(readFileSync(join(workspace, 'plan', 'preview-acceptances.yaml'), 'utf8')).toContain('documentation-ai-migrate accept --route');
   });
 });
 

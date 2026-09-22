@@ -35,7 +35,7 @@ describe('the MCP flow chooses its project before pictures are hosted', () => {
     // no --clone and no --remote: this migration will be published through the MCP server
     cli('init', '--source', source, '--platform', 'gitbook');
     for (const [stage, ...rest] of [['discover'], ['approve', '--gate', '1', '--by', 'owner'], ['acquire'], ['inventory'], ['plan'], ['approve', '--gate', '2', '--by', 'owner']]) cli(stage, ...rest);
-    expect(() => cli('assets', '--provider', 's3')).toThrow(/project this migration goes into is not chosen yet[\s\S]*dai-migrate project --workspace/);
+    expect(() => cli('assets', '--provider', 's3')).toThrow(/project this migration goes into is not chosen yet[\s\S]*documentation-ai-migrate project --workspace/);
   }, 240_000);
 });
 
@@ -65,7 +65,7 @@ describe('migrating into your own clone, with no API key', () => {
     const env = { ...Object.fromEntries(Object.entries(gitEnv).filter(([key]) => !/^(DAI_|MIGRATION_|FIRECRAWL_|README_|R2_|AWS_)/.test(key))), MIGRATION_WORKSPACE: workspace };
     const cli = (...args: string[]): string => {
       try { return execFileSync(process.execPath, [join(repo, 'node_modules/tsx/dist/cli.mjs'), join(repo, 'packages/migrate-core/src/cli.ts'), ...args], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
-      catch (error) { const failed = error as { stdout?: string; stderr?: string }; throw new Error(`dai-migrate ${args.join(' ')}\n${failed.stdout ?? ''}${failed.stderr ?? ''}`); }
+      catch (error) { const failed = error as { stdout?: string; stderr?: string }; throw new Error(`documentation-ai-migrate ${args.join(' ')}\n${failed.stdout ?? ''}${failed.stderr ?? ''}`); }
     };
 
     // no --target, no --remote, no --allowed-orgs, no key

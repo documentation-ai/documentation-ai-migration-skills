@@ -2,7 +2,7 @@
 
 Move a documentation site onto [Documentation.AI](https://documentation.ai) **exactly**: the text, titles, sidebar, order, links, images and code of the migrated site are your source's own, proven against a sealed copy of the source, and you see a preview before anything goes live.
 
-It is a set of agent skills plus a deterministic command line, `dai-migrate`. Your AI assistant (Claude Code, Codex, Claude Desktop, Cursor…) reads the skills and drives the command line; the command line does all of the converting. The assistant never rewrites your content itself.
+It is a set of agent skills plus a deterministic command line, `documentation-ai-migrate`. Your AI assistant (Claude Code, Codex, Claude Desktop, Cursor…) reads the skills and drives the command line; the command line does all of the converting. The assistant never rewrites your content itself.
 
 What you get:
 
@@ -84,7 +84,7 @@ If you also want your published documentation searchable from the same session, 
 
 **Any other assistant**: see [Use it from any assistant](#use-it-from-any-assistant).
 
-The command line is run from this folder as `npx dai-migrate <command>`. It is not installed globally. `npx dai-migrate --help` lists every command and flag.
+The command line is run from this folder as `npx documentation-ai-migrate <command>`. It is not installed globally. `npx documentation-ai-migrate --help` lists every command and flag.
 
 ---
 
@@ -94,29 +94,31 @@ Tell your assistant: *"Migrate https://docs.acme.com onto Documentation.AI. My p
 
 By hand, the clone flow is this sequence. The workspace holds everything the run produces and lives **outside** this folder.
 
+The command is `documentation-ai-migrate`. It answers to `dai-migrate` as well, which is what it was called before the tool was public, so older scripts and half-finished migrations keep working.
+
 ```bash
 W=~/migrations/acme-docs
 
-npx dai-migrate init      --workspace $W --source https://docs.acme.com --clone ~/acme-docs \
+npx documentation-ai-migrate init      --workspace $W --source https://docs.acme.com --clone ~/acme-docs \
                           --template classic --customer-authorised
-npx dai-migrate fingerprint --workspace $W            # which platform is the source?
-npx dai-migrate discover  --workspace $W              # → plan/tree.yaml                  [decision 1]
-npx dai-migrate approve   --workspace $W --gate 1 --by "Your Name"
-npx dai-migrate acquire   --workspace $W              # seal a copy of every page (live sites)
-npx dai-migrate inventory --workspace $W
-npx dai-migrate plan      --workspace $W              # → plan/*.yaml, plan/site.yaml     [decision 2]
-npx dai-migrate approve   --workspace $W --gate 2 --by "Your Name"
-npx dai-migrate assets    --workspace $W              # host the pictures
-npx dai-migrate convert   --workspace $W
-npx dai-migrate convert   --workspace $W              # twice: proves the result is repeatable
-npx dai-migrate nav       --workspace $W              # → output/documentation.json
-npx dai-migrate verify    --workspace $W              # checks on your machine             [decision 3]
-npx dai-migrate approve   --workspace $W --gate 3 --by "Your Name"
-npx dai-migrate write     --workspace $W --push       # migration branch → preview build
-npx dai-migrate verify    --workspace $W --preview-url https://…   # checks on the preview   [decision 4]
-npx dai-migrate approve   --workspace $W --gate 4 --by "Your Name"
-npx dai-migrate release   --workspace $W              # → report/release-certificate.json
-npx dai-migrate report    --workspace $W              # the report, as HTML, PDF and JSON
+npx documentation-ai-migrate fingerprint --workspace $W            # which platform is the source?
+npx documentation-ai-migrate discover  --workspace $W              # → plan/tree.yaml                  [decision 1]
+npx documentation-ai-migrate approve   --workspace $W --gate 1 --by "Your Name"
+npx documentation-ai-migrate acquire   --workspace $W              # seal a copy of every page (live sites)
+npx documentation-ai-migrate inventory --workspace $W
+npx documentation-ai-migrate plan      --workspace $W              # → plan/*.yaml, plan/site.yaml     [decision 2]
+npx documentation-ai-migrate approve   --workspace $W --gate 2 --by "Your Name"
+npx documentation-ai-migrate assets    --workspace $W              # host the pictures
+npx documentation-ai-migrate convert   --workspace $W
+npx documentation-ai-migrate convert   --workspace $W              # twice: proves the result is repeatable
+npx documentation-ai-migrate nav       --workspace $W              # → output/documentation.json
+npx documentation-ai-migrate verify    --workspace $W              # checks on your machine             [decision 3]
+npx documentation-ai-migrate approve   --workspace $W --gate 3 --by "Your Name"
+npx documentation-ai-migrate write     --workspace $W --push       # migration branch → preview build
+npx documentation-ai-migrate verify    --workspace $W --preview-url https://…   # checks on the preview   [decision 4]
+npx documentation-ai-migrate approve   --workspace $W --gate 4 --by "Your Name"
+npx documentation-ai-migrate release   --workspace $W              # → report/release-certificate.json
+npx documentation-ai-migrate report    --workspace $W              # the report, as HTML, PDF and JSON
 ```
 
 **Where the preview URL comes from.** With no API key, open your project's dashboard → Deployments → Preview, copy the URL of the migration branch once it is ready, and pass it as `--preview-url`. It is remembered, so later runs only need `verify --preview`. With `DAI_API_KEY` set, `write --push` waits for the preview and records the URL itself.
@@ -125,13 +127,13 @@ npx dai-migrate report    --workspace $W              # the report, as HTML, PDF
 
 ```bash
 # git flow: name the repository instead of a clone (the migrator clones it into the workspace)
-npx dai-migrate init --workspace $W --source https://docs.acme.com --remote git@github.com:acme/docs.git --customer-authorised
+npx documentation-ai-migrate init --workspace $W --source https://docs.acme.com --remote git@github.com:acme/docs.git --customer-authorised
 
 # MCP flow: no git and no key. init needs no --clone or --remote, and publish replaces write --push
-npx dai-migrate init    --workspace $W --source https://docs.acme.com --customer-authorised
-npx dai-migrate project --workspace $W                 # opens your browser to sign in; records which project this goes into
+npx documentation-ai-migrate init    --workspace $W --source https://docs.acme.com --customer-authorised
+npx documentation-ai-migrate project --workspace $W                 # opens your browser to sign in; records which project this goes into
 #   … the same stages …
-npx dai-migrate publish --workspace $W                 # signs in again, then publishes into that project
+npx documentation-ai-migrate publish --workspace $W                 # signs in again, then publishes into that project
 ```
 
 `publish` opens your browser so you can sign in to Documentation.AI, exactly as an assistant does when it connects to the MCP server. The sign-in is held in memory for that run and never written anywhere. If your account can edit several projects, name the one you mean with `--project "<name>"`; it is remembered for this migration. Then it sends every file, then the settings and navigation, and publishes a working version `migration/<id>` once. Documentation.AI builds that version's preview by itself: open the project in the dashboard, switch to the working version, copy the preview address from the Save menu (or from Deployments → Preview), and pass it to `verify --preview-url`.
@@ -168,16 +170,16 @@ mkdir -p ~/migrations
 codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir ~/migrations
 ```
 
-Then type `Use $migrate to migrate https://docs.acme.com onto Documentation.AI` and give `~/migrations/<name>` as the workspace. Inside that sandbox `npx` cannot run, so the skill has Codex call `node packages/migrate-core/bin/dai-migrate.mjs` directly. For the MCP flow, Codex hands you the one `publish` command to run in your own terminal, because the browser sign-in is yours. To pick up a new version later: `codex plugin remove documentation-ai-migration@documentation-ai-migration`, then `codex plugin add` again.
+Then type `Use $migrate to migrate https://docs.acme.com onto Documentation.AI` and give `~/migrations/<name>` as the workspace. Inside that sandbox `npx` cannot run, so the skill has Codex call `node packages/migrate-core/bin/documentation-ai-migrate.mjs` directly. For the MCP flow, Codex hands you the one `publish` command to run in your own terminal, because the browser sign-in is yours. To pick up a new version later: `codex plugin remove documentation-ai-migration@documentation-ai-migration`, then `codex plugin add` again.
 
 **MCP hosts.** The MCP server is this same command line, served over stdio:
 
 ```json
 {
   "mcpServers": {
-    "dai-migrate": {
+    "documentation-ai-migrate": {
       "command": "node",
-      "args": ["/absolute/path/to/documentation-ai-migration-skills/packages/migrate-core/bin/dai-migrate.mjs", "mcp"]
+      "args": ["/absolute/path/to/documentation-ai-migration-skills/packages/migrate-core/bin/documentation-ai-migrate.mjs", "mcp"]
     }
   }
 }
@@ -186,9 +188,9 @@ Then type `Use $migrate to migrate https://docs.acme.com onto Documentation.AI` 
 That block goes in `claude_desktop_config.json` for Claude Desktop, `.cursor/mcp.json` for Cursor, or `.vscode/mcp.json` for VS Code (there the top-level key is `servers`). For Codex add to `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.dai-migrate]
+[mcp_servers.documentation-ai-migrate]
 command = "node"
-args = ["/absolute/path/to/documentation-ai-migration-skills/packages/migrate-core/bin/dai-migrate.mjs", "mcp"]
+args = ["/absolute/path/to/documentation-ai-migration-skills/packages/migrate-core/bin/documentation-ai-migrate.mjs", "mcp"]
 ```
 
 No key goes in the server's configuration: `publish` opens your browser to sign in. Whichever assistant drives it, the rules live in the command line: it refuses a workspace inside this folder, refuses to push unapproved scope, and records every approval with a person's name.
@@ -249,8 +251,8 @@ Everything else is **a note, never a failure**: the language label the platform 
 If a page does fail and you have looked at it and are satisfied, say so:
 
 ```bash
-npx dai-migrate accept --workspace $W --route docs/keys --reason "the sample moved into the API playground on purpose" --by "Your Name"
-npx dai-migrate verify --workspace $W --preview
+npx documentation-ai-migrate accept --workspace $W --route docs/keys --reason "the sample moved into the API playground on purpose" --by "Your Name"
+npx documentation-ai-migrate verify --workspace $W --preview
 ```
 
 The report keeps the finding with your name beside it. Options: `--renderer chrome` opens every page in a headless browser and also checks the content behind accordions and tabs (slower); `--responsive all|off` measures layout on every page or not at all (the default is a spread of 24 pages).
