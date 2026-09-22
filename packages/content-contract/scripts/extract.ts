@@ -27,11 +27,14 @@ import { parse as parseYaml } from 'yaml';
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, '..');
 
+/** A platform repository beside this one, unless an environment variable or a flag says otherwise. */
+const siblingRepo = (name: string) => join(here, '..', '..', '..', '..', name);
+
 const { values } = parseArgs({
   options: {
-    app: { type: 'string', default: process.env.DAI_APP_REPO ?? '/home/krishna/documentation-ai-app' },
-    backend: { type: 'string', default: process.env.DAI_BACKEND_REPO ?? '/home/krishna/documentation-ai-backend' },
-    dashboard: { type: 'string', default: process.env.DAI_DASHBOARD_REPO ?? '/home/krishna/documentation-ai-dashboard' },
+    app: { type: 'string', default: process.env.DAI_APP_REPO ?? siblingRepo('documentation-ai-app') },
+    backend: { type: 'string', default: process.env.DAI_BACKEND_REPO ?? siblingRepo('documentation-ai-backend') },
+    dashboard: { type: 'string', default: process.env.DAI_DASHBOARD_REPO ?? siblingRepo('documentation-ai-dashboard') },
     check: { type: 'boolean', default: false },
   },
 });

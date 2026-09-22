@@ -298,10 +298,10 @@ describe('a live Flare site, crawled', () => {
     const helpSystem = HELP_SYSTEM.replace('<WebHelpSystem', '<WebHelpSystem DefaultUrl="home.htm"');
     const topic = (title: string, body: string) => `<html data-mc-path-to-help-system=""><head><title>${title}</title></head><body><div data-mc-content-body="True">${body}</div></body></html>`;
     const files: Record<string, string> = {
-      '/home.htm': topic('SessionM Help Center', '<h1>Welcome</h1>'),
+      '/home.htm': topic('Acme Help Center', '<h1>Welcome</h1>'),
       '/Data/HelpSystem.xml': helpSystem,
       '/Data/Tocs/CurrentNav.js': `define({numchunks:1,prefix:'CurrentNav_Chunk',tree:{n:[{i:0,c:0}]}});`,
-      '/Data/Tocs/CurrentNav_Chunk0.js': `define({'/home.htm':{i:[0],t:['SessionM Help Center'],b:['']}});`,
+      '/Data/Tocs/CurrentNav_Chunk0.js': `define({'/home.htm':{i:[0],t:['Acme Help Center'],b:['']}});`,
     };
     const serve = (async (input: any) => {
       const { pathname } = new URL(typeof input === 'string' ? input : input.toString());
@@ -313,8 +313,8 @@ describe('a live Flare site, crawled', () => {
     ensureWorkspace(workspace);
     const found = await discoverLiveSite({ seedUrl: 'http://8.8.8.8/home.htm', fetcher: new Fetcher({ workspace, rps: 1000, fetchImpl: serve }), profile: getProfile('madcap') });
     // No title on this site carries a site-name suffix, so the usual reading finds nothing.
-    expect(siteNameFromTitleTags(['SessionM Help Center'])).toBeUndefined();
-    expect(found.siteName).toBe('SessionM Help Center');
+    expect(siteNameFromTitleTags(['Acme Help Center'])).toBeUndefined();
+    expect(found.siteName).toBe('Acme Help Center');
   });
 
   it('leaves a site that is not Flare untouched', async () => {

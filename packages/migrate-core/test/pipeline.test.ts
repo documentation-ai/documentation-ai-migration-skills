@@ -189,7 +189,7 @@ describe('urls', () => {
     expect(inlineText((reparsed.children[3] as Extract<Block, { type: 'paragraph' }>).children)).toBe('After.');
   });
   it('reads a heading holding tag-shaped text the way the output spells it', () => {
-    // SessionM published a heading whose text is literally "<move>What are…": the source wrote it
+    // Acme published a heading whose text is literally "<move>What are…": the source wrote it
     // escaped, so those are the author's characters, not markup, and the page converts exactly.
     const html = htmlToIr('<main><h2>&lt;move&gt;What are the attributes of an offer?</h2></main>',
       htmlAdapterOptions(PROFILES.generic, { platform: 'generic', file: 'https://docs.example.com/a.htm' }));
@@ -1263,28 +1263,28 @@ describe('a section landing page opens its section', () => {
   ];
 
   it('is the group\u2019s own page, not a sibling of the group', () => {
-    const top = nav([page('lp', 'Explainers', [], 'SessionM Help Center', 1), ...section]);
+    const top = nav([page('lp', 'Explainers', [], 'Acme Help Center', 1), ...section]);
     expect(top).toHaveLength(1);
     expect(top[0]).toMatchObject({ group: 'Explainers', path: 'Explainers' });
     expect((top[0].pages as Array<{ title: string }>).map((entry) => entry.title)).toEqual(['Custom events', 'Points']);
   });
 
   it('opens the section from an index page the same way', () => {
-    const top = nav([page('lp', 'Explainers/index', ['Explainers'], 'SessionM Help Center', 1), ...section]);
+    const top = nav([page('lp', 'Explainers/index', ['Explainers'], 'Acme Help Center', 1), ...section]);
     expect(top).toHaveLength(1);
     expect(top[0]).toMatchObject({ group: 'Explainers', path: 'Explainers/index' });
     expect(top[0].pages).toHaveLength(2);
   });
 
   it('opens a section of one page too: the section keeps its page, nothing collapses', () => {
-    const top = nav([page('lp', 'Explainers', [], 'SessionM Help Center', 1), section[0]]);
+    const top = nav([page('lp', 'Explainers', [], 'Acme Help Center', 1), section[0]]);
     expect(top).toHaveLength(1);
     expect(top[0]).toMatchObject({ group: 'Explainers', path: 'Explainers' });
     expect(top[0].pages).toHaveLength(1);
   });
 
   it('leaves an index page alone when it is all the folder holds: the folder would be empty', () => {
-    const top = nav([page('lp', 'Explainers/index', ['Explainers'], 'SessionM Help Center', 1)]);
+    const top = nav([page('lp', 'Explainers/index', ['Explainers'], 'Acme Help Center', 1)]);
     expect(top.find((entry) => entry.group === 'Explainers')).not.toHaveProperty('path');
     expect(top.find((entry) => entry.group === 'Explainers')!.pages).toHaveLength(1);
   });
@@ -1306,7 +1306,7 @@ describe('a section whose pages all sit in subfolders is still a section', () =>
 
   it('opens from its landing page even when no page sits in the folder itself', () => {
     const top = nav([
-      page('lp', 'Explainers', [], 'SessionM Help Center', 1),
+      page('lp', 'Explainers', [], 'Acme Help Center', 1),
       page('a', 'Explainers/Profile/overview', ['Explainers', 'Profile'], 'Overview', 2),
       page('b', 'Explainers/Events/custom', ['Explainers', 'Events'], 'Custom events', 3),
     ]);

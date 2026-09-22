@@ -4,7 +4,7 @@
  * them. None of it is authored content, and exact mode has no way to drop it later — it permits a
  * rule to remove only script and style — so the article the migrator reads must not contain it.
  *
- * The markup here is as learn.sessionm.com serves it.
+ * The markup here is as learn.acme.example serves it.
  */
 import { describe, it, expect } from 'vitest';
 import { htmlToIr } from '../src/ir/from-html.js';
@@ -47,9 +47,9 @@ describe('Flare skin furniture inside the topic body', () => {
   });
 
   it('drops the landing-page hero\'s search box but keeps the heading beside it', () => {
-    const doc = ir('<div class="new-topic-hero"><div class="new-topic-hero-wrap"><h1>SessionM Help Center</h1><form class="search" action="#"><div class="search-bar search-bar-container"><input class="search-field" type="search" /></div></form></div></div><p>Browse the procedures below.</p>');
+    const doc = ir('<div class="new-topic-hero"><div class="new-topic-hero-wrap"><h1>Acme Help Center</h1><form class="search" action="#"><div class="search-bar search-bar-container"><input class="search-field" type="search" /></div></form></div></div><p>Browse the procedures below.</p>');
     expect(textOf(doc)).not.toContain('search-field');
-    expect(textOf(doc)).toContain('SessionM Help Center');
+    expect(textOf(doc)).toContain('Acme Help Center');
     expect(textOf(doc)).toContain('Browse the procedures below.');
   });
 

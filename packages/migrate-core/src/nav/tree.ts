@@ -729,7 +729,7 @@ function groupsBySourcePath(pages: TreePage[]): Record<string, unknown>[] {
    * `/Explainers/index`; either way the page opens the section. The platform reads it from the
    * container's `path`, so listing it separately showed the section twice — once as a group, once
    * as a page under whatever title the source gave it, which on this Flare site was the same
-   * "SessionM Help Center" on every section. A folder left with nothing else beneath it is simply
+   * "Acme Help Center" on every section. A folder left with nothing else beneath it is simply
    * that page, so it stays where it is.
    */
   const landingFolder = (page: TreePage): Node | undefined => {
