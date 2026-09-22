@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "documentation-ai-authoring": {
+      "type": "http",
+      "url": "https://api.documentation.ai/mcp"
+    }
+  }
+}
