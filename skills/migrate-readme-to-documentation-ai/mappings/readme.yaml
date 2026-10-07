@@ -22,7 +22,7 @@ rules:
     tier: T2
     match: { name: Card }
     to: { name: Card, props: { title: $title, href: $href, icon: $icon, target: $target } }
-    note: "Font Awesome icon names are mapped to Lucide by the icon table before this rule sees them"
+    note: "ReadMe writes Font Awesome names (fa-rocket); the rules engine keeps them for the site's Font Awesome library and notes any Pro style it substitutes"
   - id: readme/columns
     tier: T3
     match: { name: Columns }
@@ -39,7 +39,7 @@ rules:
   - id: readme/tab
     tier: T1
     match: { name: Tab }
-    to: { name: Tab, props: { title: $title } }
+    to: { name: Tab, props: { title: $title, icon: $icon } }
   - id: readme/embed-iframe
     tier: T3
     match: { name: embed }

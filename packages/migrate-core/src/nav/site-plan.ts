@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import type { NavbarLink, SiteBranding } from '../scrape/site-branding.js';
 import { hexColor } from '../scrape/site-branding.js';
+import { ICON_LIBRARIES, type IconLibrary } from '@dai/content-contract';
 import { ICON_POLICIES, type IconPolicy } from './icon-suggest.js';
 
 export interface SitePlan {
@@ -36,6 +37,12 @@ export interface SitePlan {
    * source states; `none` writes no icon at all.
    */
   icons?: IconPolicy;
+  /**
+   * The site's icons.library: which library icons written by name alone are drawn from. Proposed
+   * from the source (Font Awesome for Mintlify, GitBook, ReadMe and Fern), so their icon names carry
+   * over as written. Unset in a workspace planned before there was a choice, which reads as Lucide.
+   */
+  iconLibrary?: IconLibrary;
   /** Ship `styles/migration.css`: the few rules that finish what the migration wrote (badges, images without captions). */
   stylesheet: boolean;
   /** Old addresses redirect to the pages that replace them, through the platform's own `redirects` setting. */
@@ -56,6 +63,8 @@ const HEADER = `# How the migrated site presents itself. None of this is content
 #   branding.logo / favicon   source URLs; the assets stage hosts them, and nav writes the hosted URL
 #   navbar           primary is the call-to-action button; links are the top bar's other links
 #   template         classic | atlas
+#   iconLibrary      lucide | fontawesome | tabler: where icons written by name alone come from. The source's
+#                    library is proposed, so its icon names carry over as written.
 #   icons            sidebar icons: suggested | source | none
 #                    suggested proposes one from each entry's own title where the source states none,
 #                    which is how documentation written on the platform reads. An icon the source
@@ -65,8 +74,16 @@ const HEADER = `# How the migrated site presents itself. None of this is content
 #   redirects        write the old-address redirects into documentation.json
 `;
 
+/**
+ * The library a platform draws icons named alone from. Mintlify, GitBook, ReadMe and Fern write
+ * Font Awesome names, so a site moved from them keeps those names under Font Awesome.
+ */
+export function sourceIconLibrary(platform: string): IconLibrary {
+  return ['mintlify', 'gitbook', 'readme', 'fern'].includes(platform) ? 'fontawesome' : 'lucide';
+}
+
 /** The plan `plan` proposes: the source's own statements, with nothing a person has yet decided. */
-export function proposeSitePlan(branding: SiteBranding | undefined, chosen: { template?: 'classic' | 'atlas' } = {}): SitePlan {
+export function proposeSitePlan(branding: SiteBranding | undefined, chosen: { template?: 'classic' | 'atlas'; iconLibrary?: IconLibrary } = {}): SitePlan {
   const navbar = branding?.navbar && (branding.navbar.primary || branding.navbar.links?.length) ? branding.navbar : undefined;
   return {
     branding: {
@@ -78,6 +95,7 @@ export function proposeSitePlan(branding: SiteBranding | undefined, chosen: { te
     ...(navbar ? { navbar } : {}),
     ...(branding?.seo && Object.keys(branding.seo).length ? { seo: branding.seo } : {}),
     template: chosen.template ?? 'classic',
+    iconLibrary: branding?.iconLibrary ?? chosen.iconLibrary ?? 'lucide',
     icons: 'suggested',
     stylesheet: true,
     redirects: true,
@@ -101,6 +119,7 @@ export function readSitePlan(workspace: string): SitePlan | undefined {
   if (!parsed || typeof parsed !== 'object') throw new Error(`${path} is not a YAML mapping`);
   if (parsed.template !== undefined && parsed.template !== 'classic' && parsed.template !== 'atlas') throw new Error(`${path}: template must be classic or atlas`);
   if (parsed.icons !== undefined && !ICON_POLICIES.includes(parsed.icons)) throw new Error(`${path}: icons must be ${ICON_POLICIES.join(', ')}`);
+  if (parsed.iconLibrary !== undefined && !ICON_LIBRARIES.includes(parsed.iconLibrary)) throw new Error(`${path}: iconLibrary must be ${ICON_LIBRARIES.join(' or ')}`);
   for (const scheme of ['light', 'dark'] as const) {
     const colour = parsed.branding?.colors?.[scheme];
     if (colour !== undefined && !hexColor(colour)) throw new Error(`${path}: branding.colors.${scheme} "${String(colour)}" is not a colour; write it as #rrggbb`);
@@ -140,6 +159,9 @@ export function documentationSiteSettings(input: SiteSettingsInput): { settings:
   const plan = input.plan;
   if (!plan) return { settings, leftOut };
   if (plan.template) settings.template = plan.template;
+  // Said even for Lucide, the default: publishing into a project merges settings, and one already
+  // set to another library would otherwise draw every bare name from it.
+  if (plan.iconLibrary) settings.icons = { library: plan.iconLibrary };
   if (plan.branding.carry) {
     const light = hexColor(plan.branding.colors?.light); const dark = hexColor(plan.branding.colors?.dark);
     if (light || dark) settings.colors = { ...(light ? { light: { brand: light } } : {}), ...(dark ? { dark: { brand: dark } } : {}) };

@@ -6,7 +6,7 @@
  * writes no name the renderer cannot draw, and that it leaves no container half iconed.
  */
 import { describe, it, expect } from 'vitest';
-import { loadContract, validateSiteConfig } from '@dai/content-contract';
+import { iconInSet, loadContract, validateSiteConfig } from '@dai/content-contract';
 import { applyIconPolicy, suggestIconName, suggestableIconNames } from '../src/nav/icon-suggest.js';
 import { proposeSitePlan, readSitePlan, writeSitePlan } from '../src/nav/site-plan.js';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -44,8 +44,7 @@ describe('an icon proposed from what an entry calls itself', () => {
   });
 
   it('writes only names the renderer can draw', () => {
-    const drawable = new Set(loadContract().icons.names);
-    const undrawable = suggestableIconNames().filter((name) => !drawable.has(name));
+    const undrawable = suggestableIconNames().filter((name) => !iconInSet('lucide', name, loadContract()));
     expect(undrawable).toEqual([]);
   });
 

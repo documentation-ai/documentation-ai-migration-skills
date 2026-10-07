@@ -151,7 +151,7 @@ The skills are plain Markdown and the engine is a command line, so anything that
 | Assistant | How |
 | --- | --- |
 | **Claude Code** | install the plugin (above). Ask it to migrate a site |
-| **Codex** (ChatGPT's coding agent) | install it as a Codex plugin (below), then type `Use $migrate to migrate https://docs.acme.com onto Documentation.AI` |
+| **Codex** (ChatGPT's coding agent) | install it as a Codex plugin (below), then type `Use $migrate-generic-to-documentation-ai to migrate https://docs.acme.com onto Documentation.AI` |
 | Gemini CLI and other terminal agents | open this folder. They read `AGENTS.md`, which points at `references/how-a-migration-runs.md`. Ask them to migrate a site |
 | **Claude Desktop, Cursor, VS Code, Windsurf** and any other MCP host | add the local MCP server below. It gives the host four tools: `migration_guide`, `migration_status`, `migration_run`, `migration_read` |
 | **claude.ai, ChatGPT chat** | these run in the cloud and cannot reach your files or your git credentials. Use one of the rows above for the migration; use the chat for reviewing the report |
@@ -170,7 +170,7 @@ mkdir -p ~/migrations
 codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir ~/migrations
 ```
 
-Then type `Use $migrate to migrate https://docs.acme.com onto Documentation.AI` and give `~/migrations/<name>` as the workspace. Inside that sandbox `npx` cannot run, so the skill has Codex call `node packages/migrate-core/bin/documentation-ai-migrate.mjs` directly. For the MCP flow, Codex hands you the one `publish` command to run in your own terminal, because the browser sign-in is yours. To pick up a new version later: `codex plugin remove documentation-ai-migration@documentation-ai-migration`, then `codex plugin add` again.
+Then type `Use $migrate-generic-to-documentation-ai to migrate https://docs.acme.com onto Documentation.AI` and give `~/migrations/<name>` as the workspace. Inside that sandbox `npx` cannot run, so the skill has Codex call `node packages/migrate-core/bin/documentation-ai-migrate.mjs` directly. For the MCP flow, Codex hands you the one `publish` command to run in your own terminal, because the browser sign-in is yours. To pick up a new version later: `codex plugin remove documentation-ai-migration@documentation-ai-migration`, then `codex plugin add` again.
 
 **MCP hosts.** The MCP server is this same command line, served over stdio:
 
@@ -224,6 +224,7 @@ navbar:
   primary: { title: Get started, link: https://acme.com/start }
   links:   [{ title: Talk to us, link: https://acme.com/contact }]
 template: classic                # or atlas; also settable up front with init --template
+iconLibrary: fontawesome         # where icons named alone come from: lucide | fontawesome | tabler (the source's own is proposed)
 icons: suggested                 # sidebar icons: suggested | source | none
 stylesheet: true                 # ships styles/migration.css: small finishing rules, all scoped to the migration's own markup
 redirects: true                  # old addresses redirect to the pages that replace them
@@ -231,7 +232,7 @@ redirects: true                  # old addresses redirect to the pages that repl
 
 `nav` writes these into `documentation.json` under the platform's own settings and checks the result against the platform's published schema. Logos and favicons are hosted with the rest of your pictures. Sidebar icons, API method badges (GET, POST…), "new"/"beta" badges, page layout modes and link-only tabs are carried from the source too. What the platform has no setting for (a footer, custom fonts, a banner) is listed under `notCarried` so you know.
 
-**Sidebar icons.** Documentation.AI draws an icon beside every sidebar row that has one, and documentation written in the editor has them. Most sources have nowhere to say it: a GitBook, Docusaurus or ReadMe sidebar states a link and its text and nothing else, so those sites would migrate into a sidebar of plain rows. With `icons: suggested`, the default, each entry the source leaves bare gets an icon read from its own title — "Getting Started" becomes `rocket`, "Billing" becomes `credit-card`, a changelog's year groups become `calendar`. Anything your source does state is kept exactly as it states it, every name is checked against the renderer's icon set so none of them draws a blank, and the pages inside one group either all get an icon or none do, so the rows stay aligned. Change any of them in `documentation.json` afterwards, or set `icons: source` to carry only your own, or `icons: none` for plain text.
+**Sidebar icons.** Documentation.AI draws an icon beside every sidebar row that has one, and documentation written in the editor has them. Most sources have nowhere to say it: a GitBook, Docusaurus or ReadMe sidebar states a link and its text and nothing else, so those sites would migrate into a sidebar of plain rows. With `icons: suggested`, the default, each entry the source leaves bare gets an icon read from its own title — "Getting Started" becomes `rocket`, "Billing" becomes `credit-card`, a changelog's year groups become `calendar`. Anything your source does state is kept as it states it: Mintlify, GitBook, ReadMe and Fern write Font Awesome names, so the site is set to Font Awesome and those names carry over unchanged, and a Font Awesome Pro style or icon becomes the nearest free one, each listed in `report/navigation-icons.json` or the page's conversion notes. Every suggested name is checked against the renderer's icon sets so none of them draws a blank, and the pages inside one group either all get an icon or none do, so the rows stay aligned. Change any of them in `documentation.json` afterwards, or set `icons: source` to carry only your own, or `icons: none` for plain text.
 
 ---
 
@@ -385,7 +386,7 @@ Before reporting a fix to a check, prove it on a real captured workspace: copy t
 skills/                    one per source: migrate-<source>-to-documentation-ai, each with its own live-site notes and rules
 references/                what every migration shares: how a migration runs, verifying a migration, the migration report
 packages/migrate-core/     the engine: cli, scrape, adapters, ir, components (rules), assets, nav, urls, verify, publish, report
-packages/content-contract/ the Documentation.AI content contract: components, navigation grammar, settings schema, icon names
+packages/content-contract/ the Documentation.AI content contract: components, navigation grammar, settings schema, icon sets and the icon value contract
 docs/STATUS.md             what is verified, the boundaries, and a dated log of every cause fixed
 AGENTS.md                  the working rules for an assistant in this repository
 ```

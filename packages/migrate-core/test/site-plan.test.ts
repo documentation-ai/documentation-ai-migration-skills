@@ -35,7 +35,21 @@ describe('what a source states about how it presents itself', () => {
       navbar: { primary: { title: 'Get started', link: 'https://acme.test/start' }, links: [{ title: 'Talk to us', link: 'https://acme.test/contact' }] },
       seo: { 'twitter:site': '@acme', 'og:locale': 'en_US' },
       unsupported: ['footer (social links and link columns): the platform has no footer setting'],
+      // docs.json states no icons.library, and Mintlify's default is Font Awesome
+      iconLibrary: 'fontawesome',
     });
+  });
+
+  it('reads the icon library a Mintlify site draws from, Tabler included', () => {
+    expect(mintlifyBranding({ icons: { library: 'lucide' } })?.iconLibrary).toBe('lucide');
+    const tabler = mintlifyBranding({ icons: { library: 'tabler' } });
+    expect(tabler?.iconLibrary).toBe('tabler');
+    expect(tabler?.unsupported ?? []).toEqual([]);
+  });
+
+  it('proposes the source platform\'s icon library, and Lucide for a site with none', () => {
+    expect(proposeSitePlan(undefined, { iconLibrary: 'fontawesome' }).iconLibrary).toBe('fontawesome');
+    expect(proposeSitePlan(undefined).iconLibrary).toBe('lucide');
   });
 
   it('reads a rendered page: per-scheme favicons, the header\'s logo pair, the brand colour a platform publishes as a variable, the header\'s links out', () => {
@@ -92,7 +106,7 @@ describe('the site plan', () => {
     const hosted = (url: string): string | undefined => (url.includes('/logo/') ? url.replace('cdn.acme.test', 'media.documentation.test') : undefined);
     const { settings, leftOut } = documentationSiteSettings({ name: 'Acme', plan, hosted, redirects: [{ source: '/old', destination: '/new', statusCode: 308 }, { source: '/same', destination: '/same' }, { source: '/temp', destination: '/t', statusCode: 307 }, { source: '/', destination: '/index' }] });
     expect(settings).toEqual({
-      name: 'Acme', template: 'classic',
+      name: 'Acme', template: 'classic', icons: { library: 'fontawesome' },
       colors: { light: { brand: '#166e3f' }, dark: { brand: '#26bd6c' } },
       'logo-light': 'https://media.documentation.test/logo/light.svg', 'logo-dark': 'https://media.documentation.test/logo/dark.svg',
       navbar: { actions: { primary: { title: 'Get started', link: 'https://acme.test/start' }, links: [{ title: 'Talk to us', link: 'https://acme.test/contact' }] } },
@@ -103,6 +117,10 @@ describe('the site plan', () => {
     // the favicon could not be hosted: it is left out and said so, never written as a link to the source host
     expect(leftOut).toEqual([expect.stringContaining('favicon: https://cdn.acme.test/favicon.svg is not hosted')]);
     expect(validateSiteConfig({ ...settings, navigation: { pages: [] } })).toEqual([]);
+  });
+
+  it('states Lucide too, so publishing into a project set to another library cannot redraw the icons', () => {
+    expect(documentationSiteSettings({ name: 'Acme', plan: { ...plan, iconLibrary: 'lucide' } }).settings.icons).toEqual({ library: 'lucide' });
   });
 
   it('writes the name alone when a person left the source\'s brand out, and nothing at all it was not asked for', () => {

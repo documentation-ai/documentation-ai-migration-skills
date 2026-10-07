@@ -103,6 +103,10 @@ export function readMintlifyRepo(rootIn: string): MintlifyRepo {
     if (typeof data?.sidebarTitle === 'string') p.sidebarTitle = data.sidebarTitle;
     if (typeof data?.description === 'string') p.description = data.description;
     for (const key of ['icon', 'tags', 'badge', 'method', 'mode'] as const) if (typeof data?.[key] === 'string') p[key] = data[key];
+    // `iconType` is the Font Awesome style of the page's icon, as on a component (`fa-regular:bell`);
+    // Mintlify ignores it on a Lucide or Tabler site.
+    const iconType = typeof data?.iconType === 'string' ? data.iconType.trim() : '';
+    if (iconType && p.icon && /^[a-z0-9-]+$/i.test(p.icon) && !['lucide', 'tabler'].includes(cfg.icons?.library)) p.icon = `fa-${iconType}:${p.icon}`;
     // `tag` is the pill Mintlify draws beside the sidebar title; the platform calls it a badge.
     if (typeof data?.tag === 'string' && data.tag.trim() && p.badge === undefined) p.badge = data.tag.trim();
   }

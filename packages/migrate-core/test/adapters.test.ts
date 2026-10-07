@@ -277,7 +277,7 @@ describe('GitBook repo adapter', () => {
     const shape = (blocks: Block[]): unknown[] => blocks.map((b) => (b.type === 'component' ? { [b.name]: b.props, children: shape(b.children) }
       : b.type === 'paragraph' ? `p:${inlineText(b.children)}` : b.type === 'heading' ? `h${b.depth}:${inlineText(b.children)}` : b.type === 'code' ? `code:${b.title}:${b.value}` : b.type));
     expect(shape(doc.children)).toEqual([
-      { cards: { 'data-view': 'cards', cols: 3 }, children: [{ card: { icon: 'leaf', title: 'No code', href: '/docs/start', image: 'https://x.example/cover.jpg' }, children: ['p:Start in 5 minutes & more.'] }] },
+      { cards: { 'data-view': 'cards', cols: 3 }, children: [{ card: { icon: 'fa-leaf', title: 'No code', href: '/docs/start', image: 'https://x.example/cover.jpg' }, children: ['p:Start in 5 minutes & more.'] }] },
       { button: { 'data-action': 'ask' }, children: ['p:How can we help?'] },
       'p:Status',
       'p:Read the guide or ask .',
@@ -301,7 +301,7 @@ describe('GitBook repo adapter', () => {
       '{% tabs %}', '{% tab title="TypeScript" %}', '```ts', "import type { A } from 'a';", 'export default { a: 1 } satisfies A;', '```', '{% endtab %}', '{% endtabs %}',
     ].join('\n');
     const doc = markdownToIr(source, { platform: 'gitbook', file: 'p.md', pageId: 'p' });
-    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook-to-documentation-ai/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w) });
+    const engine = new RulesEngine({ platform: 'gitbook', mappings: loadMappings([join(repoRoot, 'skills/migrate-gitbook-to-documentation-ai/mappings/gitbook.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger: new Ledger(w), log: new DecisionLog(w), iconLibrary: 'fontawesome' });
     const mdx = docToMdx(engine.resolveDoc(doc));
     expect(validateMdx(mdx)).toEqual([]);
     // a Step title stands for the heading it replaced, and an assistant prompt's text is chrome: nothing authored is missing

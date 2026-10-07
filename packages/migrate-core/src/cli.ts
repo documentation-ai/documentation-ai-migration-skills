@@ -32,7 +32,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { Cookie, CookieJar } from 'tough-cookie';
-import { loadContract, validateSiteConfig } from '@dai/content-contract';
+import { DEFAULT_ICON_LIBRARY, loadContract, validateSiteConfig } from '@dai/content-contract';
 import { freezeDirectory, frozenRootPath, narrowSourceManifest, sourceManifestPath, writeSourceManifest, type SourceManifest, type FreezeResult } from './evidence/manifest.js';
 import { nativeSourceManifest, liveSourceManifest } from './evidence/capture.js';
 import { requireSourceManifest } from './evidence/verify.js';
@@ -83,7 +83,7 @@ import { readReadmeRepo, ReadmeApi, readmeApiTree } from './adapters/readme.js';
 import { scanComponentDefinitions, attachDefinitions } from './adapters/definitions.js';
 import { labelFromPathSegment, statedLabelsBySlug } from './nav/labels.js';
 import { writeTree, readTree, buildDocumentationNavigation, pagesWithoutPlacement, placedPageIds, sourceNavigationFromDiscovered, type GroupOpenapiRef, type SourceNavigationNode, type Tree, type TreePage } from './nav/tree.js';
-import { documentationSiteSettings, proposeSitePlan, readSitePlan, sitePlanImages, sitePlanPath, writeSitePlan, MIGRATION_STYLESHEET, MIGRATION_STYLESHEET_CSS } from './nav/site-plan.js';
+import { documentationSiteSettings, proposeSitePlan, readSitePlan, sitePlanImages, sitePlanPath, sourceIconLibrary, writeSitePlan, MIGRATION_STYLESHEET, MIGRATION_STYLESHEET_CSS } from './nav/site-plan.js';
 import { applyIconPolicy } from './nav/icon-suggest.js';
 import { mintlifyBranding, siteBrandingFromPage, type SiteBranding } from './scrape/site-branding.js';
 import { defaultUrlPlan, extendUrlPlan, writeUrlPlan, readUrlPlan, applyUrlPlan, redirectMaps, anchorMap, type RedirectRule } from './urls/plan.js';
@@ -383,6 +383,7 @@ function assertReadyToSend(workspace: string, s: Session, flag: '--push' | 'publ
   // block exclusions are optional, so pin presence as well as content
   if ((existsSync(blockExclusionsPath(workspace)) ? fileHash(blockExclusionsPath(workspace)) : undefined) !== s.hashes.blockExclusions) stalePlans.push('block-exclusions.yaml');
   if ((existsSync(scopeDecisionsPath(workspace)) ? fileHash(scopeDecisionsPath(workspace)) : undefined) !== s.hashes.scopeDecisions) stalePlans.push('scope-decisions.yaml');
+  if (s.hashes.convertIconLibrary && (readSitePlan(workspace)?.iconLibrary ?? DEFAULT_ICON_LIBRARY) !== s.hashes.convertIconLibrary) stalePlans.push('site.yaml iconLibrary');
   if (stalePlans.length) fail(`${flag} refused: plan changed after conversion (${stalePlans.join(', ')}); rerun convert and verify`);
   const gateReport = readJson<{ pass: boolean; outputHash?: string; gates: GateResult[] }>(gateFile);
   if (gateReport.outputHash !== currentOutputHash) fail(`${flag} refused: report/gates.json does not belong to the current output; rerun verify`);
@@ -1123,7 +1124,7 @@ async function main() {
       // about itself, and a person's to change. An existing one is theirs and is kept.
       const branding = detectSiteBranding(workspace, s, tree);
       writeJson(join(workspace, 'inventory', 'site-branding.json'), branding ?? null);
-      if (!existsSync(sitePlanPath(workspace))) writeSitePlan(workspace, proposeSitePlan(branding, { template: s.target.template }));
+      if (!existsSync(sitePlanPath(workspace))) writeSitePlan(workspace, proposeSitePlan(branding, { template: s.target.template, iconLibrary: sourceIconLibrary(tree.platform) }));
       const assetsPlan = { provider: v.provider ?? s.target.assetProvider ?? 'local', generateAlt: false, iframeHosts: ['www.youtube.com', 'youtube.com', 'youtu.be', 'player.vimeo.com', 'www.loom.com'] };
       const ap = join(workspace, 'plan', 'assets.yaml'); if (!existsSync(ap)) writeFileSync(ap, toYaml(assetsPlan), { mode: 0o600 });
       // plans are pinned again by convert; a plan edit invalidates any verified output
@@ -1258,7 +1259,7 @@ async function main() {
       // fresh ledger and log per convert run
       for (const f of ['ledger/dispositions.jsonl', 'logging/decisions.jsonl']) { const p = join(workspace, f); if (existsSync(p)) writeFileSync(p, ''); }
       const ledger = new Ledger(workspace); const log = new DecisionLog(workspace, !!v['log-originals']);
-      const engine = new RulesEngine({ platform: tree.platform, mappings: loadMappings(mappingPaths(tree.platform)), plan, ledger, log, iframeHosts: assetsPlan.iframeHosts, flareData: frozenNavigationData(workspace) });
+      const engine = new RulesEngine({ platform: tree.platform, mappings: loadMappings(mappingPaths(tree.platform)), plan, ledger, log, iframeHosts: assetsPlan.iframeHosts, flareData: frozenNavigationData(workspace), iconLibrary: readSitePlan(workspace)?.iconLibrary });
       // a link to another page follows it to its new route; one to a page this migration does not write is kept, or sent to
       // the source site when the URL plan says so, and listed in report/unmigrated-links.json
       const siteLinks = siteLinksForWorkspace(workspace, tree);
@@ -1370,11 +1371,12 @@ async function main() {
       s.hashes.assetPlan = fileHash(join(workspace, 'plan', 'assets.yaml'));
       s.hashes.blockExclusions = existsSync(blockExclusionsPath(workspace)) ? fileHash(blockExclusionsPath(workspace)) : undefined;
       s.hashes.scopeDecisions = existsSync(scopeDecisionsPath(workspace)) ? fileHash(scopeDecisionsPath(workspace)) : undefined;
+      s.hashes.convertIconLibrary = readSitePlan(workspace)?.iconLibrary ?? DEFAULT_ICON_LIBRARY;
       s.hashes.canonicalOutput = undefined;
       writeSession(workspace, s);
       // determinism is proven by re-converting the same frozen inputs, not by re-reading the same files
       const outputHash = canonicalHash(outDir);
-      const inputsKey = sha256([s.hashes.sourceManifest ?? '', s.hashes.acquisition ?? '', s.hashes.scopeDecisions ?? '', fileHash(join(workspace, 'plan', 'tree.yaml')), s.hashes.snapshot ?? '', s.hashes.componentPlan ?? '', s.hashes.urlPlan ?? '', s.hashes.assetPlan ?? '', s.hashes.blockExclusions ?? '', existsSync(join(workspace, 'plan', 'assets.json')) ? fileHash(join(workspace, 'plan', 'assets.json')) : ''].join('|'));
+      const inputsKey = sha256([s.hashes.sourceManifest ?? '', s.hashes.acquisition ?? '', s.hashes.scopeDecisions ?? '', fileHash(join(workspace, 'plan', 'tree.yaml')), s.hashes.snapshot ?? '', s.hashes.componentPlan ?? '', s.hashes.urlPlan ?? '', s.hashes.assetPlan ?? '', s.hashes.blockExclusions ?? '', existsSync(join(workspace, 'plan', 'assets.json')) ? fileHash(join(workspace, 'plan', 'assets.json')) : '', s.hashes.convertIconLibrary].join('|'));
       s.hashes.previousConvertOutput = s.hashes.convertInputs === inputsKey ? s.hashes.convertOutput : undefined;
       s.hashes.convertInputs = inputsKey; s.hashes.convertOutput = outputHash; writeSession(workspace, s);
       markStage(workspace, 'convert', 'done', `${converted} converted, ${heldForSnippets} held (blocked snippet tokens), ${quarantinedForFidelity} quarantined (exact-fidelity)`);
@@ -1469,7 +1471,12 @@ async function main() {
       // migrates into a sidebar that reads plainer than the same pages written in the editor. The
       // reviewed plan decides whether one is proposed per entry, and an icon the source states is
       // never replaced.
-      const icons = applyIconPolicy(navigation.navigation, sitePlan?.icons ?? 'source');
+      const icons = applyIconPolicy(navigation.navigation, sitePlan?.icons ?? 'source', sitePlan?.iconLibrary);
+      if (navigation.iconNotes.length) {
+        // Every icon drawn differently from the source, or not at all: the reader sees these.
+        writeJson(join(workspace, 'report', 'navigation-icons.json'), navigation.iconNotes);
+        console.log(`· ${navigation.iconNotes.length} navigation icon(s) differ from the source: ${navigation.iconNotes.slice(0, 3).join('; ')}${navigation.iconNotes.length > 3 ? '; …' : ''} (report/navigation-icons.json)`);
+      } else rmSync(join(workspace, 'report', 'navigation-icons.json'), { force: true });
       navigation.navigation = icons.navigation;
       const assetManifest = readManifest(workspace);
       const exactOutput = (s.fidelityMode ?? 'exact') === 'exact';
@@ -1484,7 +1491,7 @@ async function main() {
       const site = documentationSiteSettings({ name: meta.name ?? existing.name, plan: sitePlan, hosted, redirects: r.exact });
       // initialRoute is a page path without a leading slash; normalise values written by earlier runs
       const initialRoute = typeof existing.initialRoute === 'string' ? existing.initialRoute.replace(/^\/+/, '') : undefined;
-      const documentationJson = { name: 'Documentation', ...(initialRoute ? { initialRoute } : {}), ...site.settings, ...navigation };
+      const documentationJson = { name: 'Documentation', ...(initialRoute ? { initialRoute } : {}), ...site.settings, navigation: navigation.navigation };
       const configIssues = validateSiteConfig(documentationJson);
       if (configIssues.length) fail(`documentation.json would not be accepted by the platform:\n${configIssues.map((issue) => `  ${issue.message}`).join('\n')}\nfix plan/site.yaml and run nav again`);
       writeJson(docJsonPath, documentationJson);
@@ -1610,6 +1617,7 @@ async function main() {
       const verifyEngine = new RulesEngine({
         platform: tree.platform, mappings: loadMappings(mappingPaths(tree.platform)), plan: readComponentPlan(workspace),
         ledger: new Ledger(join(workspace, 'plan')), log: new DecisionLog(join(workspace, 'plan')), flareData: frozenNavigationData(workspace),
+        iconLibrary: readSitePlan(workspace)?.iconLibrary,
         iframeHosts: existsSync(join(workspace, 'plan', 'assets.yaml')) ? (parseYaml(readFileSync(join(workspace, 'plan', 'assets.yaml'), 'utf8')) as { iframeHosts?: string[] }).iframeHosts : undefined,
       });
       const sourceEvidence = buildSourceEvidence(workspace, tree);
@@ -1630,7 +1638,8 @@ async function main() {
         // Gate 3 approves the report this run produces, so a local verify asks for gates 1 and 2;
         // by preview time the output has been approved and pushed, so gate 3 must hold too.
         approvalProblems: releaseApprovalProblems(workspace, s, v.preview ? 3 : 2),
-        pinnedPlans: { componentPlan: s.hashes.componentPlan, urlPlan: s.hashes.urlPlan, assetPlan: s.hashes.assetPlan, sitePlan: s.hashes.sitePlan, blockExclusions: s.hashes.blockExclusions, scopeDecisions: s.hashes.scopeDecisions },
+        pinnedPlans: { componentPlan: s.hashes.componentPlan, urlPlan: s.hashes.urlPlan, assetPlan: s.hashes.assetPlan, sitePlan: s.hashes.sitePlan, blockExclusions: s.hashes.blockExclusions, scopeDecisions: s.hashes.scopeDecisions, convertIconLibrary: s.hashes.convertIconLibrary },
+        iconLibrary: readSitePlan(workspace)?.iconLibrary ?? DEFAULT_ICON_LIBRARY,
         sourceDocs: { *[Symbol.iterator]() { for (const doc of docs) yield { doc, outputFile: byId.get(doc.pageId)?.newPath ? join(workspace, 'output', `${byId.get(doc.pageId)!.newPath}.mdx`) : undefined }; } },
         treePages: tree.pages, quarantinedPages: quarantined, excludedPages: new Set(), unreviewed,
         operatorPages: helpCenterHubRoutes(workspace, tree),

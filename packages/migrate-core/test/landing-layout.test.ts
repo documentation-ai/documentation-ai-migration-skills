@@ -51,12 +51,42 @@ describe('a landing page\'s card grid', () => {
     expect(mdx).toContain('<Card title="Quickstart" href="/quickstart" icon="rocket">');
     // Font Awesome's gear is Lucide's settings
     expect(mdx).toContain('icon="settings"');
-    // a brand logo Lucide does not carry: no icon, rather than one that silently renders nothing
-    expect(mdx).toMatch(/<Card title="Ask Claude" href="\/ai">/);
+    // a brand logo Lucide does not carry is drawn from Font Awesome's brands, which has it
+    expect(mdx).toContain('<Card title="Ask Claude" href="/ai" icon="fa-brands:claude">');
   });
 
   it('says nothing the source does not: the comparison the exact gates make still holds', () => {
     const readBack = markdownToIr(mdx, { platform: 'dai', file: 'index.mdx', pageId: 'home' });
     expect(fidelityEqual(authoredContentSnapshot(applyDeclaredLosses(source, engineFor())), authoredContentSnapshot(readBack))).toBe(true);
+  });
+});
+
+describe('a Mintlify page moved to a Font Awesome site', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'dai-landing-fa-')); ensureWorkspace(workspace);
+  const ledger = new Ledger(workspace);
+  const engine = new RulesEngine({ platform: 'mintlify', mappings: loadMappings([join(repoRoot, 'skills/migrate-mintlify-to-documentation-ai/mappings/mintlify.yaml'), join(repoRoot, 'skills/migrate-generic-to-documentation-ai/mappings/generic.yaml')]), ledger, log: new DecisionLog(workspace), iconLibrary: 'fontawesome' });
+  const page = [
+    '<Card title="Alerts" icon="bell" iconType="regular" href="/alerts">Get notified</Card>',
+    '',
+    '<Card title="Launch" icon="rocket" iconType="light" href="/launch">Ship it</Card>',
+    '',
+    '<Tabs>',
+    '  <Tab title="macOS" icon="apple">Install with brew.</Tab>',
+    '  <Tab title="Linux" icon="linux">Install with apt.</Tab>',
+    '</Tabs>',
+    '',
+  ].join('\n');
+  const mdx = docToMdx(engine.resolveDoc(markdownToIr(page, { platform: 'mintlify', file: 'icons.mdx', pageId: 'icons' })));
+
+  it('keeps each icon\'s name and the style iconType states, as one value', () => {
+    expect(mdx).toContain('<Card title="Alerts" href="/alerts" icon="fa-regular:bell">');
+    // light is a Pro style; regular has no rocket, so it is drawn solid, the bare name on this site
+    expect(mdx).toContain('<Card title="Launch" href="/launch" icon="rocket">');
+    expect(validateMdx(mdx)).toEqual([]);
+  });
+
+  it('carries tab icons, which were lost before', () => {
+    expect(mdx).toContain('<Tab title="macOS" icon="fa-brands:apple">');
+    expect(mdx).toContain('<Tab title="Linux" icon="fa-brands:linux">');
   });
 });

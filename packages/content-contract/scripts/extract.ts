@@ -15,14 +15,16 @@
  *
  * It also copies the platform's published `documentation.json` JSON Schema beside the contract
  * (`documentation.schema.json`), summarises the navigation grammar and page-entry properties from
- * it, and records the Lucide icon names the renderer's installed `lucide-react` can draw: an icon
- * name it does not have renders nothing, silently.
+ * it, and records the icon sets the renderer's installed packages draw (Lucide, Font Awesome Free
+ * and Tabler, with their older names): an icon name no set has renders nothing, silently.
  */
 import { parseArgs } from 'node:util';
+import { createRequire } from 'node:module';
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { ICON_CONTRACT_VERSION } from '../src/icon-contract/icon-contract.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, '..');
@@ -172,7 +174,7 @@ function main() {
     .sort();
 
   const siteConfig = siteConfigFrom(join(values.dashboard!, 'public', 'documentation.json'));
-  const icons = lucideIconsFrom(join(values.app!, 'node_modules', 'lucide-react'));
+  const icons = iconSetsFrom(values.app!);
 
   const contract = {
     contractVersion: decisions.version,
@@ -182,7 +184,7 @@ function main() {
       deploymentValidator: 'documentation-ai-backend/src/trigger/services/deployment/mdxValidation.service.ts',
       editorSchemas: 'documentation-ai-dashboard/src/components/ucc/*.json',
       siteConfigSchema: 'documentation-ai-dashboard/public/documentation.json',
-      icons: 'documentation-ai-app/node_modules/lucide-react/dist/esm/icons/*.js',
+      icons: 'documentation-ai-app/node_modules/{lucide-react/dist/esm/icons/*.js,@fortawesome/free-{solid,regular,brands}-svg-icons,@tabler/icons-react}',
     },
     emittable,
     components,
@@ -229,7 +231,7 @@ function main() {
   }
   writeFileSync(outPath, next);
   writeFileSync(schemaPath, siteConfig.schemaText);
-  console.log(`wrote ${outPath}: ${components.length} components, ${emittable.length} emittable, ${icons.names.length} icon names, ${siteConfig.topLevelKeys.length} site settings`);
+  console.log(`wrote ${outPath}: ${components.length} components, ${emittable.length} emittable, ${Object.values(icons.sets).map((set) => set.names.length).join('/')} icon names (lucide/solid/regular/brands/tabler/tabler-filled), ${siteConfig.topLevelKeys.length} site settings`);
 }
 
 /**
@@ -271,18 +273,88 @@ function siteConfigFrom(schemaFile: string): {
   };
 }
 
-/** Every icon name the renderer's installed lucide-react exports a file for, aliases included. */
-function lucideIconsFrom(packageDir: string): { library: string; version: string; names: string[] } {
-  const iconsDir = join(packageDir, 'dist', 'esm', 'icons');
+interface IconSetRecord {
+  package: string;
+  version: string;
+  names: string[];
+  aliases?: Record<string, string>;
+}
+
+/**
+ * The icon sets the renderer draws, read from the app's installed packages: every Lucide name
+ * lucide-react exports a file for (aliases included), each Font Awesome Free style's names with
+ * the older names it still answers to, and Tabler's outline and filled sets.
+ */
+function iconSetsFrom(appDir: string): { contract: string; sets: Record<string, IconSetRecord> } {
+  const lucideDir = join(appDir, 'node_modules', 'lucide-react');
+  const iconsDir = join(lucideDir, 'dist', 'esm', 'icons');
   if (!existsSync(iconsDir)) {
     // The app's dependencies are not installed here: keep what the last extraction recorded.
     const previous = existsSync(join(pkgRoot, 'contract.json')) ? JSON.parse(readText(join(pkgRoot, 'contract.json'))).icons : undefined;
-    if (previous) return previous;
+    if (previous?.sets) return previous;
     throw new Error(`${iconsDir} is missing: run npm install in the app repository so the drawable icon names can be read`);
   }
-  const version = JSON.parse(readText(join(packageDir, 'package.json'))).version as string;
-  const names = readdirSync(iconsDir).filter((file) => file.endsWith('.js') && file !== 'index.js').map((file) => file.slice(0, -3)).sort();
-  return { library: 'lucide-react', version, names };
+  const versionOf = (pkg: string) => JSON.parse(readText(join(appDir, 'node_modules', pkg, 'package.json'))).version as string;
+  const appRequire = createRequire(join(appDir, 'package.json'));
+  const fontAwesome = (pkg: string, pack: string): IconSetRecord => {
+    const definitions = Object.values(appRequire(pkg)[pack] as Record<string, { iconName: string; icon: [number, number, Array<string | number>] }>);
+    const names = [...new Set(definitions.map((definition) => definition.iconName))].sort();
+    const canonical = new Set(names);
+    const aliases: Record<string, string> = {};
+    for (const { iconName, icon } of definitions) {
+      for (const alias of icon[2]) if (typeof alias === 'string' && !canonical.has(alias)) aliases[alias] ??= iconName;
+    }
+    return { package: pkg, version: versionOf(pkg), names, aliases: Object.fromEntries(Object.entries(aliases).sort(([a], [b]) => a.localeCompare(b))) };
+  };
+  /**
+   * Read as the renderer reads them: each @tabler/icons-react component's class names the icon and
+   * its fill says outline or filled. A filled icon's name drops its `-filled`, kept as an alias, and
+   * a renamed icon's other exports (`Icon12Hours` for `hours-12`) become kebab-case aliases.
+   */
+  const tabler = (): Record<'tabler' | 'tabler-filled', IconSetRecord> => {
+    const pkg = '@tabler/icons-react';
+    type Component = { displayName?: string; render?: (props: object, ref: null) => { props: { className?: string; fill?: string } } };
+    const exportsOf = new Map<Component, string[]>();
+    for (const [exportName, component] of Object.entries(appRequire(pkg) as Record<string, Component>)) {
+      if (typeof component?.render !== 'function' || !component.displayName) continue;
+      exportsOf.set(component, [...(exportsOf.get(component) ?? []), exportName]);
+    }
+    const built = { tabler: { names: new Set<string>(), aliases: {} as Record<string, string> }, 'tabler-filled': { names: new Set<string>(), aliases: {} as Record<string, string> } };
+    const kebab = (exportName: string) => exportName.slice('Icon'.length).replace(/([a-z])([0-9])/g, '$1-$2').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+    for (const [component, exportNames] of exportsOf) {
+      const { className = '', fill } = component.render!({}, null).props;
+      const tablerName = className.split(' ').filter((c) => c.startsWith('tabler-icon-')).pop()?.slice('tabler-icon-'.length);
+      if (!tablerName) continue;
+      const set = fill === 'none' ? 'tabler' : 'tabler-filled';
+      const canonical = set === 'tabler-filled' ? tablerName.replace(/-filled$/, '') : tablerName;
+      built[set].names.add(canonical);
+      const spellings = [tablerName, ...(exportNames.length > 1 ? exportNames.map(kebab) : [])];
+      for (const spelling of spellings.flatMap((s) => (set === 'tabler-filled' ? [s, s.replace(/-filled$/, '')] : [s]))) {
+        if (spelling !== canonical) built[set].aliases[spelling] ??= canonical;
+      }
+    }
+    const record = ({ names, aliases }: { names: Set<string>; aliases: Record<string, string> }): IconSetRecord => ({
+      package: pkg,
+      version: versionOf(pkg),
+      names: [...names].sort(),
+      aliases: Object.fromEntries(Object.entries(aliases).filter(([alias]) => !names.has(alias)).sort(([a], [b]) => a.localeCompare(b))),
+    });
+    return { tabler: record(built.tabler), 'tabler-filled': record(built['tabler-filled']) };
+  };
+  return {
+    contract: ICON_CONTRACT_VERSION,
+    sets: {
+      lucide: {
+        package: 'lucide-react',
+        version: versionOf('lucide-react'),
+        names: readdirSync(iconsDir).filter((file) => file.endsWith('.js') && file !== 'index.js').map((file) => file.slice(0, -3)).sort(),
+      },
+      'fa-solid': fontAwesome('@fortawesome/free-solid-svg-icons', 'fas'),
+      'fa-regular': fontAwesome('@fortawesome/free-regular-svg-icons', 'far'),
+      'fa-brands': fontAwesome('@fortawesome/free-brands-svg-icons', 'fab'),
+      ...tabler(),
+    },
+  };
 }
 
 main();

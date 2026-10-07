@@ -17,11 +17,12 @@ describe('GitBook landing page layout', () => {
     expect(cards(read(CARDS.replace('data-view="cards"', 'data-view="cards" data-card-size="large"'))).props.cols).toBe(2);
   });
 
-  it('reads a row of icons as the card icon, never its title, and names icons as Lucide does', () => {
+  it('reads a row of icons as the card icon, never its title, keeping Font Awesome\'s name', () => {
     const [editor, agent, code] = cards(read(CARDS)).children.map((c: any) => c.props);
-    expect(editor).toMatchObject({ title: 'In the editor', icon: 'pointer' });
-    expect(code).toMatchObject({ title: 'With code', icon: 'code' });
-    // three brand logos: the card is titled by its heading and carries no icon Lucide cannot draw
+    // the rules engine writes these for the site's icon library
+    expect(editor).toMatchObject({ title: 'In the editor', icon: 'fa-hand-pointer' });
+    expect(code).toMatchObject({ title: 'With code', icon: 'fa-code' });
+    // three icons in one cell: the card is titled by its heading and carries none, since a card has one
     expect(agent.title).toBe('From your agent');
     expect(agent.icon).toBeUndefined();
   });

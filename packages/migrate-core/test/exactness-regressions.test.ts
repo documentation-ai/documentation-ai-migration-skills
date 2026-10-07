@@ -76,7 +76,7 @@ describe('navigation follows renderer container rules', () => {
 
   it('refuses what the renderer would ignore in silence: an icon it cannot draw, a method it does not know, a property of another kind', () => {
     expect(check({ pages: [{ ...page, icon: 'book-open', method: 'POST', 'content-width': 'wide', 'show-toc': false }] })).toEqual([]);
-    expect(check({ pages: [{ ...page, icon: 'file-braces' }] })[0].message).toMatch(/icon "file-braces" is not a name the renderer/);
+    expect(check({ pages: [{ ...page, icon: 'file-braces' }] })[0].message).toMatch(/icon "file-braces" is not an icon the site draws/);
     expect(check({ pages: [{ ...page, method: 'FETCH' }] })[0].message).toMatch(/method "FETCH"/);
     expect(check({ tabs: [{ tab: 'Docs', description: 'Only a dropdown or a menu has one', pages: [page] }] })[0].message).toMatch(/"description" is not a tab property/);
     expect(check({ pages: [{ ...page, href: 'https://x.example/' }] })[0].message).toMatch(/both "path" and "href"/);

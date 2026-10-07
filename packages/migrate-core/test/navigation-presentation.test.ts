@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { validateNavigation } from '@dai/content-contract';
 import { extractMintlifyNavigation } from '../src/scrape/discovery.js';
-import { buildNavigation, sourceNavigationFromDiscovered, type SourceNavigationNode, type TreePage } from '../src/nav/tree.js';
+import { buildNavigation, migrateNavigationIcons, sourceIconValue, sourceNavigationFromDiscovered, type SourceNavigationNode, type TreePage } from '../src/nav/tree.js';
 import { labelFromPathSegment, statedLabelsBySlug } from '../src/nav/labels.js';
 
 const html = (nav: unknown): string => `<html><script>self.__next_f.push([1,${JSON.stringify(`0:${JSON.stringify({ scopedNav: nav })}`)}])</script></html>`;
@@ -40,7 +40,7 @@ describe('presentation a Mintlify site states on its navigation entries', () => 
     const ids: Record<string, string> = { 'https://docs.example/': 'home', 'https://docs.example/quickstart': 'quick', 'https://docs.example/api/create-pet': 'pet' };
     const navigation = sourceNavigationFromDiscovered(found.navigation, (url) => ids[url]);
     const pages = [page('home', 'index'), page('quick', 'quickstart'), page('pet', 'api/create-pet')];
-    const built = buildNavigation(pages, { sourceNavigation: navigation });
+    const built = migrateNavigationIcons(buildNavigation(pages, { sourceNavigation: navigation }).navigation, 'lucide');
     expect(built.navigation).toEqual({ groups: [{ group: 'Start', icon: 'rocket', pages: [
       // Mintlify's frame mode: a canvas that keeps the sidebar
       { title: 'Home', path: 'index', 'show-toc': false, 'show-parent-label': false, 'show-page-navigation': false, 'ask-feedback': false, 'content-width': 'wide' },
@@ -48,13 +48,25 @@ describe('presentation a Mintlify site states on its navigation entries', () => 
       { title: 'Quickstart', path: 'quickstart', icon: 'settings', badge: 'NEW' },
       { title: 'Create a pet', path: 'api/create-pet', method: 'POST' },
     ] }] });
-    expect(validateNavigation({ name: 'Docs', ...built }, () => true)).toEqual([]);
+    expect(validateNavigation({ name: 'Docs', navigation: built.navigation }, () => true)).toEqual([]);
+  });
+
+  it('keeps Mintlify\'s Font Awesome names as written on a Font Awesome site', () => {
+    const ids: Record<string, string> = { 'https://docs.example/': 'home', 'https://docs.example/quickstart': 'quick', 'https://docs.example/api/create-pet': 'pet' };
+    const navigation = sourceNavigationFromDiscovered(found.navigation, (url) => ids[url]);
+    const pages = [page('home', 'index'), page('quick', 'quickstart'), page('pet', 'api/create-pet')];
+    const built = migrateNavigationIcons(buildNavigation(pages, { sourceNavigation: navigation }).navigation, 'fontawesome');
+    const group = (built.navigation as { groups: Array<{ icon: string; pages: Array<{ icon?: string }> }> }).groups[0];
+    expect([group.icon, group.pages[1].icon]).toEqual(['rocket', 'gear']);
+    expect(built.iconNotes).toEqual([]);
+    expect(validateNavigation({ name: 'Docs', icons: { library: 'fontawesome' }, navigation: built.navigation }, () => true)).toEqual([]);
   });
 });
 
 describe('an icon the renderer cannot draw', () => {
   const nav = (icon: string): SourceNavigationNode[] => [{ type: 'group', label: 'Guides', icon, children: [{ type: 'page', pageId: 'a' }] }];
-  const groupOf = (icon: string): Record<string, unknown> => (buildNavigation([page('a', 'a')], { sourceNavigation: nav(icon) }).navigation as { groups: Array<Record<string, unknown>> }).groups[0];
+  const built = (icon: string, library: 'lucide' | 'fontawesome' = 'lucide') => migrateNavigationIcons(buildNavigation([page('a', 'a')], { sourceNavigation: nav(icon) }).navigation, library);
+  const groupOf = (icon: string, library: 'lucide' | 'fontawesome' = 'lucide'): Record<string, unknown> => (built(icon, library).navigation as { groups: Array<Record<string, unknown>> }).groups[0];
 
   it('is written under the name the renderer\'s library draws the same picture by', () => {
     // lucide-react 0.525 has no `file-braces`: it is the newer name of `file-json`
@@ -63,9 +75,37 @@ describe('an icon the renderer cannot draw', () => {
     expect(groupOf('book-open').icon).toBe('book-open');
   });
 
-  it('is not written at all when the library has nothing for it', () => {
-    expect(groupOf('claude')).not.toHaveProperty('icon');
+  it('is not written at all when no library has it, and says so', () => {
+    expect(groupOf('not-an-icon')).not.toHaveProperty('icon');
+    expect(built('not-an-icon').iconNotes).toEqual(['"Guides": icon "not-an-icon" is not in Font Awesome Free or Lucide; left out']);
+  });
+
+  it('draws a brand logo Lucide lacks from Font Awesome brands', () => {
+    expect(groupOf('claude').icon).toBe('fa-brands:claude');
+    // on a Font Awesome site a bare name means solid; a brand is written with its style
+    expect(groupOf('discord', 'fontawesome').icon).toBe('fa-brands:discord');
+  });
+
+  it('keeps an icon file the platform hosts, and leaves out a project file or one on another site', () => {
+    expect(groupOf('https://blob-cdn.documentation.ai/org-1/doc-1/1-icon.svg').icon).toBe('https://blob-cdn.documentation.ai/org-1/doc-1/1-icon.svg');
+    expect(groupOf('/icons/brand.svg')).not.toHaveProperty('icon');
     expect(groupOf('https://cdn.example/icon.svg')).not.toHaveProperty('icon');
+    expect(built('https://cdn.example/icon.svg').iconNotes[0]).toMatch(/^"Guides": icon file "https:\/\/cdn\.example\/icon\.svg" is on another site/);
+  });
+
+  it('carries a Pro style to the nearest Free one on a Font Awesome site, and says so', () => {
+    expect(groupOf('fa-light fa-bell', 'fontawesome').icon).toBe('fa-regular:bell');
+    expect(built('fa-light fa-bell', 'fontawesome').iconNotes).toEqual(['"Guides": icon "bell" asks for the Font Awesome Pro light style; drawn regular']);
+    expect(groupOf('fa-brands fa-github', 'fontawesome').icon).toBe('fa-brands:github');
+    expect(groupOf('fa-solid fa-rocket', 'lucide').icon).toBe('fa-solid:rocket');
+  });
+
+  it('reads Mintlify\'s object form', () => {
+    expect(sourceIconValue({ name: 'bell', style: 'regular' })).toBe('fa-regular:bell');
+    expect(sourceIconValue({ name: 'zap', library: 'lucide' })).toBe('lucide:zap');
+    expect(sourceIconValue({ name: 'rocket' })).toBe('rocket');
+    // An explicit library is kept even with no style, so another site library cannot redraw it.
+    expect(sourceIconValue({ name: 'brain', library: 'fontawesome' })).toBe('fa:brain');
   });
 });
 

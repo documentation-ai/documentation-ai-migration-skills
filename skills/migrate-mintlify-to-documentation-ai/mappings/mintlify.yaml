@@ -40,8 +40,9 @@ rules:
     tier: T2
     match: { name: Card }
     to: { name: Card, props: { title: $title, href: $href, icon: $icon, image: $img, cta: $cta, horizontal: $horizontal } }
-    # icon colour, icon style and the hover arrow are decoration; any other authored prop is reported as dropped
-    drop: [color, iconType, arrow]
+    # icon colour and the hover arrow are decoration; any other authored prop is reported as dropped.
+    # iconType is the icon's Font Awesome style, carried into the icon itself (fa-regular:bell)
+    drop: [color, arrow]
     # a named icon is carried; one written as inline JSX (icon={<svg/>}) is not, and does not hold the card back
     dropWhenExpression: [icon]
   - id: mint/frame
@@ -61,7 +62,8 @@ rules:
   - id: mint/tab
     tier: T1
     match: { name: Tab }
-    to: { name: Tab, props: { title: $title } }
+    # the icon is written for the site's icon library, with iconType as its style
+    to: { name: Tab, props: { title: $title, icon: $icon } }
   - id: mint/steps
     tier: T1
     match: { name: Steps }
@@ -194,7 +196,7 @@ rules:
     children: unwrap
   - id: mint/icon
     tier: T2
-    # a named glyph from Mintlify's icon set, which the target has no equivalent for
+    # an inline glyph on its own; the platform has icons only on components and navigation, not inline
     match: { name: Icon }
     children: drop
   # --- live demos: one decision per widget, applied to every locale, in the widget's own position ---

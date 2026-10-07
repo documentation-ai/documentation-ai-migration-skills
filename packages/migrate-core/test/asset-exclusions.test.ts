@@ -51,6 +51,19 @@ describe('approved asset exclusions', () => {
     expect(excludedAssets(m).map((e) => e.sourceUrls[0])).toEqual([BIG]);
   });
 
+  it('lets an icon file nobody could host past the exact gate, but not the same file used as an image', () => {
+    const ICON = 'https://mintlify.s3.us-west-1.amazonaws.com/mintlify/images/navigation/languages/ar.png';
+    const page = { id: 'p1', source: 'https://docs.example.com/languages' };
+    const m: AssetManifest = {
+      provider: 's3', byUrl: { [ICON]: ICON },
+      entries: { [ICON]: { hash: ICON, sourceUrls: [ICON], references: [{ kind: 'icon', url: ICON, page }], status: 'failed', error: 'HTTP 403', altMissing: 0 } },
+    };
+    expect(unhostedAssets(m)).toEqual([]);
+    expect(() => assertAssetsHosted(m, 'assets')).not.toThrow();
+    m.entries[ICON].references.push({ kind: 'image', url: ICON, page, alt: 'Arabic' });
+    expect(() => assertAssetsHosted(m, 'assets')).toThrow(/1 of them has none/);
+  });
+
   it('matches a token-free URL against a signed address, keeping the credential out of the plan file', () => {
     const signed = 'https://2672413337-files.gitbook.io/~/files/v0/o/New%20Share%20Modal.gif?alt=media&token=f392f982-24a9';
     const m: AssetManifest = {

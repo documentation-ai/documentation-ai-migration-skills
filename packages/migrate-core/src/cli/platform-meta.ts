@@ -10,7 +10,9 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJson } from './io.js';
 import { acquiredPath, type AcquiredPage } from '../scrape/acquire.js';
+import type { IconLibrary } from '@dai/content-contract';
 import type { GroupOpenapiRef } from '../nav/tree.js';
+import { readSitePlan } from '../nav/site-plan.js';
 import type { RedirectRule } from '../urls/plan.js';
 
 export interface PlatformMeta {
@@ -26,11 +28,13 @@ export interface PlatformMeta {
   openapiCaptured?: boolean;
   /** Endpoint pages by page id, recorded at inventory from the pinned snapshot. */
   pageOpenapi?: Record<string, string>;
+  /** The migrated site's icons.library, from the reviewed site plan: what bare icon names are written for. */
+  iconLibrary?: IconLibrary;
 }
 
 export function readPlatformMeta(workspace: string): PlatformMeta {
   const path = join(workspace, 'inventory', 'platform-meta.json');
-  const meta = existsSync(path) ? readJson<PlatformMeta>(path) : {};
+  const meta: PlatformMeta = { ...(existsSync(path) ? readJson<PlatformMeta>(path) : {}), iconLibrary: readSitePlan(workspace)?.iconLibrary };
   const bindings = join(workspace, 'inventory', 'page-openapi.json');
   return existsSync(bindings) ? { ...meta, pageOpenapi: readJson<Record<string, string>>(bindings) } : meta;
 }

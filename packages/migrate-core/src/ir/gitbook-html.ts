@@ -114,10 +114,9 @@ function card(row: El, roles: CardColumn[], file: string): ComponentNode {
     const icons = iconsOf(cell);
     if (icons && props.icon === undefined && props.title === undefined) {
       // GitBook may show several icons (`:claude: :chatgpt: :cursor:`); a card has one. The cell is
-      // the card's icon either way and never its title. A name with no Lucide equivalent (a brand
-      // logo) leaves the card without an icon rather than a broken one.
-      const lucide = icons.length === 1 ? lucideIcon(icons[0]) : undefined;
-      if (lucide) props.icon = lucide;
+      // the card's icon either way and never its title. The Font Awesome name is kept as GitBook
+      // wrote it; the rules engine writes it for the site's icon library and says what it changes.
+      if (icons.length === 1) props.icon = `fa-${icons[0]}`;
       return;
     }
     if (props.title === undefined && isTitleCell(cell)) { props.title = cleanText(textOf(cell)); return; }
@@ -158,27 +157,6 @@ function iconsOf(cell: El): string[] | undefined {
   const icons = findAll(cell, 'i').filter((i) => /(?:^|\s)fa-[\w-]+/.test(i.attribs.class ?? ''));
   if (!icons.length || cleanText(textOf(cell)) !== cleanText(icons.map((icon) => textOf(icon)).join(' '))) return undefined;
   return icons.map((icon) => (icon.attribs.class ?? '').match(/(?:^|\s)fa-([\w-]+)/)![1]);
-}
-
-/**
- * Font Awesome names GitBook uses whose Lucide icon (what Documentation.AI renders) is spelled
- * differently, matched by what the icon shows. A name Lucide shares is used as it is; a brand logo
- * Lucide does not carry has no entry and yields no icon.
- */
-const FONT_AWESOME_TO_LUCIDE: Record<string, string> = {
-  'wand-magic-sparkles': 'wand-sparkles', 'code-branch': 'git-branch', 'pen-to-square': 'square-pen',
-  'magnifying-glass-chart': 'chart-column', 'pen-ruler': 'pencil-ruler', 'file-import': 'file-input',
-  'magnifying-glass': 'search', 'hand-pointer': 'pointer', 'clock-rotate-left': 'history', 'life-ring': 'life-buoy',
-  'table-columns': 'columns-3', 'layer-group': 'layers', language: 'languages', 'code-pull-request': 'git-pull-request',
-  'puzzle-piece': 'puzzle', gears: 'cog', robot: 'bot', 'file-lines': 'file-text', 'globe-pointer': 'globe',
-  'window-restore': 'app-window', 'clipboard-list-check': 'clipboard-check', 'rectangle-terminal': 'square-terminal',
-  'chart-line-up': 'chart-line', 'octagon-check': 'circle-check',
-};
-const BRAND_ICONS = new Set(['claude', 'chatgpt', 'cursor', 'react', 'google', 'github', 'gitlab', 'slack', 'discord', 'figma', 'openai', 'x-twitter', 'linkedin', 'youtube']);
-
-function lucideIcon(fontAwesome: string): string | undefined {
-  if (BRAND_ICONS.has(fontAwesome)) return undefined;
-  return FONT_AWESOME_TO_LUCIDE[fontAwesome] ?? fontAwesome;
 }
 
 /** A parsed fragment as HTML again; the parser decoded entities, so text and attribute values are escaped anew. */
