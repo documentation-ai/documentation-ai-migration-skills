@@ -11,6 +11,19 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ajv, type ErrorObject } from 'ajv';
 import addFormatsModule from 'ajv-formats';
+import {
+  formatIconValue,
+  iconSetCandidates,
+  iconValueForPick,
+  parseIconValue,
+  siteIconLibrary,
+  toIconName,
+  type FontAwesomeStyle,
+  type IconLibrary,
+  type IconSetId,
+} from './icon-contract/icon-contract.js';
+
+export * from './icon-contract/icon-contract.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +46,15 @@ export interface ComponentContract {
   notes: string[];
 }
 
+export interface IconSetContract {
+  package: string;
+  version: string;
+  /** Every name the set draws. Lucide's list holds its published aliases too. */
+  names: string[];
+  /** Font Awesome's older names, mapped to the name each now draws under. */
+  aliases?: Record<string, string>;
+}
+
 export interface ContentContract {
   contractVersion: string;
   generatedAt: string;
@@ -53,8 +75,11 @@ export interface ContentContract {
   };
   /** documentation.json settings: the platform's own JSON Schema sits beside the contract. */
   siteConfig: { schema: string; topLevelKeys: string[]; required: string[] };
-  /** Icon names the renderer's installed icon library can draw. Any other name renders nothing, silently. */
-  icons: { library: string; version: string; names: string[] };
+  /**
+   * The icon sets the renderer draws, read from its installed packages, for the icon value contract
+   * named. A name no set draws renders nothing, silently.
+   */
+  icons: { contract: string; sets: Record<IconSetId, IconSetContract> };
   redirects: {
     supported: { exact: boolean; namedParam: boolean; trailingWildcard: boolean; splat: boolean };
     defaultStatus: number;
@@ -267,12 +292,12 @@ export function validateNavigation(doc: any, pageExists: (path: string) => boole
   if (!nav || typeof nav !== 'object') { err('documentation.json has no navigation object'); return issues; }
   const keys = contract.navigation.rootKeys;
   const childKeys: Record<string, string[]> = { navigation: keys, ...contract.navigation.childKeys };
-  const drawable = new Set(contract.icons.names);
+  const iconLibrary = siteIconLibrary(doc?.icons?.library);
   const methods = new Set(contract.navigation.httpMethods);
 
   /** Presentation every entry may state. A value the renderer cannot use is an error here, because it fails silently there. */
   const presentation = (node: any, path: string): void => {
-    if (node.icon !== undefined && (typeof node.icon !== 'string' || !drawable.has(node.icon))) err(`${path}: icon "${String(node.icon)}" is not a name the renderer's icon library draws; it would render nothing`);
+    if (node.icon !== undefined && (typeof node.icon !== 'string' || !iconDraws(node.icon, iconLibrary, contract))) err(`${path}: icon "${String(node.icon)}" is not an icon the site draws; it would render nothing`);
   };
   const pageItem = (it: any, path: string): void => {
     if (typeof it === 'string') { err(`${path} is the bare string "${it}"; pages must be objects like { "title": ..., "path": ... }`); return; }
@@ -348,9 +373,9 @@ export function validateSiteConfig(doc: unknown, contract = loadContract()): Val
 }
 
 /**
- * Icon names as other libraries spell them, matched by what the icon shows. Font Awesome is what
- * Mintlify and GitBook default to; Documentation.AI draws Lucide. A brand logo Lucide does not carry
- * has no entry and yields no icon rather than a wrong one.
+ * Lucide pictures for Font Awesome names, matched by what the icon shows: used only for a name
+ * Font Awesome Free does not draw, such as a Pro icon, so the page still shows the same idea.
+ * A brand logo neither set carries has no entry and yields no icon rather than a wrong one.
  */
 const ICON_EQUIVALENTS: Record<string, string> = {
   // Font Awesome → Lucide
@@ -412,29 +437,212 @@ const ICON_EQUIVALENTS: Record<string, string> = {
   'chart-no-axes-column': 'chart-no-axes-column', 'square-chart-gantt': 'square-chart-gantt',
 };
 
+/** Names both libraries have, drawn differently: Font Awesome's `bolt` is lightning, Lucide's a hex bolt. */
 const SAME_NAME_DIFFERENT_PICTURE: Record<string, string> = { bolt: 'zap' };
 
+/** The canonical name a set draws a spelling under, or undefined when the set has no such icon. */
+export function iconInSet(set: IconSetId, name: string, contract = loadContract()): string | undefined {
+  const data = contract.icons.sets[set];
+  if (!data) return undefined;
+  if (data.names.includes(name)) return name;
+  return data.aliases?.[name];
+}
+
 /**
- * The icon name to write for one a source states, or undefined when the renderer can draw nothing
- * for it. A name the renderer's library has is kept; one it spells differently is translated; a
- * brand logo, an emoji, a URL or anything else yields no icon, which is what the reader would see
- * anyway — but a name that draws nothing is never written.
+ * Hosts the platform's media library serves files from: production, and the CDN the backend's
+ * `MEDIA_IMAGE_CDN_BASE` names for this environment. The platform draws an icon file only from
+ * here or the project, so a page never waits on another site.
  */
-export function drawableIconName(source: unknown, contract = loadContract()): string | undefined {
-  if (typeof source !== 'string') return undefined;
-  const drawable = new Set(contract.icons.names);
-  const name = source.trim().replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase().replace(/^(?:fa[srlbdt]?\s+)?fa-/, '').replace(/^lucide[-:]/, '').replace(/\s+/g, '-');
-  if (!name || /^https?:|\//.test(source)) return undefined;
-  // A name both libraries have, drawn differently: Font Awesome's `bolt` is lightning, Lucide's a
-  // hex bolt. Documentation says lightning far more often than hardware, so it reads as lightning.
-  if (SAME_NAME_DIFFERENT_PICTURE[name] && drawable.has(SAME_NAME_DIFFERENT_PICTURE[name])) return SAME_NAME_DIFFERENT_PICTURE[name];
-  if (drawable.has(name)) return name;
-  const equivalent = ICON_EQUIVALENTS[name];
-  if (equivalent && drawable.has(equivalent)) return equivalent;
-  // Font Awesome style suffixes and numbered variants: `circle-check-solid`, `file-2`
+export function mediaLibraryHosts(): string[] {
+  const hosts = ['blob-cdn.documentation.ai'];
+  const configured = process.env.MEDIA_IMAGE_CDN_BASE;
+  if (configured) {
+    try { hosts.push(new URL(configured).hostname); } catch { /* not a URL: production only */ }
+  }
+  return hosts;
+}
+
+const hostOf = (url: string): string => new URL(url).hostname;
+
+/** What a written icon value draws on a site using `library`: a set, a file, or nothing. */
+export function iconDraws(value: string, library: IconLibrary, contract = loadContract()): IconSetId | 'file' | undefined {
+  const parsed = parseIconValue(value);
+  if (!parsed.ok) return undefined;
+  if (parsed.value.kind === 'url') return mediaLibraryHosts().includes(hostOf(parsed.value.url)) ? 'file' : undefined;
+  // Project files are not served yet, so a path draws nothing.
+  if (parsed.value.kind === 'project-file') return undefined;
+  const name = parsed.value.name;
+  return iconSetCandidates(parsed.value, library).find((candidate) => iconInSet(candidate.set, name, contract))?.set;
+}
+
+export interface IconMigration {
+  /** The value to write; absent when nothing on the platform draws the icon. */
+  value?: string;
+  /** Said whenever what is written draws differently from the source, or nothing is written. */
+  note?: string;
+}
+
+/** Font Awesome style names as sources write them (Mintlify's `iconType`, class tokens), mapped to one spelling. */
+const FONT_AWESOME_STYLE_TOKENS: Record<string, string> = {
+  fas: 'solid', 'fa-solid': 'solid', solid: 'solid',
+  far: 'regular', 'fa-regular': 'regular', regular: 'regular',
+  fab: 'brands', 'fa-brands': 'brands', brands: 'brands',
+  fal: 'light', 'fa-light': 'light', light: 'light',
+  fat: 'thin', 'fa-thin': 'thin', thin: 'thin',
+  fad: 'duotone', 'fa-duotone': 'duotone', duotone: 'duotone',
+  fass: 'sharp-solid', fasr: 'sharp-regular', fasl: 'sharp-light', fast: 'sharp-thin', fasds: 'sharp-duotone-solid',
+  'fa-sharp': 'sharp', 'fa-sharp-duotone': 'sharp-duotone', 'fa-semibold': 'semibold',
+};
+
+/** Font Awesome Pro styles, and the Free style closest in look to each. */
+const PRO_STYLE_SUBSTITUTES: Record<string, FontAwesomeStyle> = {
+  light: 'regular', thin: 'regular', semibold: 'solid', duotone: 'solid', sharp: 'solid',
+  'sharp-solid': 'solid', 'sharp-regular': 'regular', 'sharp-light': 'regular', 'sharp-thin': 'regular',
+  'sharp-duotone': 'solid', 'sharp-duotone-solid': 'solid',
+};
+
+/** Class tokens that size or animate an icon rather than name it. */
+const FONT_AWESOME_MODIFIER = /^fa-(?:fw|xs|sm|lg|xl|2xs|2xl|[1-9]0?x|spin|spin-pulse|spin-reverse|pulse|beat|beat-fade|bounce|fade|flip|shake|rotate-(?:90|180|270|by)|flip-(?:horizontal|vertical|both)|border|pull-(?:left|right|start|end)|inverse|li|ul|stack|stack-[12]x|width-auto|swap-opacity)$/;
+
+/**
+ * Reads a Font Awesome class string such as `fa-duotone fa-solid fa-house` or `fas fa-rocket fa-fw`:
+ * the icon's name and the style it states. A combination such as duotone with solid states the Pro
+ * family, which wins over the weight.
+ */
+function readFontAwesomeClasses(tokens: string[]): { name?: string; style?: string } {
+  const styles: string[] = [];
+  let name: string | undefined;
+  for (const token of tokens.map((t) => t.toLowerCase())) {
+    const style = FONT_AWESOME_STYLE_TOKENS[token];
+    if (style) styles.push(style);
+    else if (token === 'fa' || FONT_AWESOME_MODIFIER.test(token)) continue;
+    else if (token.startsWith('fa-') && !name) name = token.slice(3);
+  }
+  const family = styles.find((style) => style !== 'solid' && style !== 'regular' && style !== 'brands' && style !== 'light' && style !== 'thin');
+  const weight = styles.find((style) => !family || style !== family);
+  const style = family ? (family === 'sharp' || family === 'sharp-duotone' ? `${family}-${weight ?? 'solid'}` : family) : weight;
+  return { name, style };
+}
+
+const EMOJI = /\p{Extended_Pictographic}/u;
+
+/** A Font Awesome name: the style it asks for if Free has it, else the nearest Free style, else the same idea in Lucide. */
+function migrateFontAwesome(name: string, style: string | undefined, library: IconLibrary, contract: ContentContract): IconMigration {
+  const freeStyle = style === 'solid' || style === 'regular' || style === 'brands' ? style : undefined;
+  const substitute = style && !freeStyle ? PRO_STYLE_SUBSTITUTES[style] : undefined;
+  const wanted = freeStyle ?? substitute;
+  const order: IconSetId[] = wanted
+    ? [`fa-${wanted}` as IconSetId, ...(['fa-solid', 'fa-brands', 'fa-regular'] as IconSetId[]).filter((set) => set !== `fa-${wanted}`)]
+    : ['fa-solid', 'fa-brands', 'fa-regular'];
+  for (const [index, set] of order.entries()) {
+    const canonical = iconInSet(set, name, contract);
+    if (!canonical) continue;
+    const value = iconValueForPick(set, canonical, library);
+    const drawn = set.slice(3);
+    if (style && !freeStyle) return { value, note: `icon "${name}" asks for the Font Awesome Pro ${style} style; drawn ${drawn}` };
+    if (index > 0 && wanted) return { value, note: `icon "${name}" has no Font Awesome Free ${wanted} version; drawn ${drawn}` };
+    return { value };
+  }
+  const lucideName = SAME_NAME_DIFFERENT_PICTURE[name] ?? ICON_EQUIVALENTS[name] ?? name;
+  const lucide = iconInSet('lucide', lucideName, contract);
+  if (lucide) return { value: iconValueForPick('lucide', lucide, library), note: `icon "${name}" is not in Font Awesome Free; drawn as Lucide "${lucide}"` };
   const bare = name.replace(/-(?:solid|regular|light|thin|duotone|sharp|outline|alt)$/, '');
-  if (bare !== name) return drawableIconName(bare, contract);
-  return undefined;
+  if (bare !== name) return migrateFontAwesome(bare, style, library, contract);
+  return { note: `icon "${name}" is not in Font Awesome Free or Lucide; left out` };
+}
+
+/** A Lucide name. */
+function migrateLucide(name: string, library: IconLibrary, contract: ContentContract): IconMigration {
+  const lucide = iconInSet('lucide', ICON_EQUIVALENTS_NEWER_LUCIDE[name] ?? name, contract);
+  if (lucide) return { value: iconValueForPick('lucide', lucide, library) };
+  return { note: `icon "${name}" is not in Lucide; left out` };
+}
+
+/** A Tabler name: outline unless the source says filled, then the other style, then Lucide's icon of that name. */
+function migrateTabler(name: string, style: string | undefined, library: IconLibrary, contract: ContentContract): IconMigration {
+  const wantsFilled = style === 'filled';
+  const order: IconSetId[] = wantsFilled ? ['tabler-filled', 'tabler'] : ['tabler', 'tabler-filled'];
+  for (const [index, set] of order.entries()) {
+    const canonical = iconInSet(set, name, contract);
+    if (!canonical) continue;
+    const value = iconValueForPick(set, canonical, library);
+    return index > 0 && wantsFilled ? { value, note: `icon "${name}" has no Tabler filled version; drawn outline` } : { value };
+  }
+  const lucide = iconInSet('lucide', ICON_EQUIVALENTS_NEWER_LUCIDE[name] ?? name, contract);
+  if (lucide) return { value: iconValueForPick('lucide', lucide, library), note: `icon "${name}" is not in Tabler; drawn as Lucide "${lucide}"` };
+  return { note: `icon "${name}" is not in Tabler or Lucide; left out` };
+}
+
+/** Lucide names newer than the renderer's library, mapped to the name it draws the same picture under. */
+const ICON_EQUIVALENTS_NEWER_LUCIDE: Record<string, string> = Object.fromEntries(
+  ['file-braces', 'file-braces-corner', 'file-code-corner', 'circle-question-mark'].map((name) => [name, ICON_EQUIVALENTS[name]]),
+);
+
+/**
+ * The icon value to write for one a source states, for a site whose icons.library is `library`.
+ * Font Awesome names are kept, so Mintlify, GitBook, ReadMe and Fern icons need no translating; the
+ * shortest value that draws the same icon is written, and every substitution comes with a note.
+ *
+ * `source` is a name, a Font Awesome class string, a file path or URL, or Mintlify's
+ * `{ name, style, library }`. `style` is a style the source states beside the name, such as
+ * Mintlify's `iconType`; with none, Font Awesome icons draw solid, the platform's default.
+ */
+export function migrateIcon(
+  source: unknown,
+  library: IconLibrary,
+  options: { style?: string; sourceLibrary?: string } = {},
+  contract = loadContract(),
+): IconMigration {
+  if (source && typeof source === 'object' && typeof (source as { name?: unknown }).name === 'string') {
+    const { name, style, library: sourceLibrary } = source as { name: string; style?: string; library?: string };
+    return migrateIcon(name, library, { style: style ?? options.style, sourceLibrary: sourceLibrary ?? options.sourceLibrary }, contract);
+  }
+  if (typeof source !== 'string' || !source.trim()) return {};
+  const raw = source.trim();
+  if (EMOJI.test(raw)) return { note: `emoji icon "${raw}" left out; icons are library names or image files` };
+
+  const parsed = parseIconValue(raw);
+  if (parsed.ok && parsed.value.kind === 'url' && !mediaLibraryHosts().includes(hostOf(parsed.value.url))) {
+    // The assets stage hosts component icon files before this runs; what still points elsewhere
+    // was not hosted, and the platform does not draw icon files from other sites.
+    return { note: `icon file "${parsed.value.url}" is on another site, which the platform does not draw icons from; left out (add the file to the media library and use its address)` };
+  }
+  if (parsed.ok && parsed.value.kind === 'project-file') {
+    return { note: `icon file "${parsed.value.path}" is a project file, which the platform does not draw icons from yet; left out (add the file to the media library and use its address)` };
+  }
+  if (parsed.ok && parsed.value.kind !== 'library') return { value: formatIconValue(parsed.value) };
+
+  const tokens = raw.split(/\s+/);
+  // A class string never holds a colon; `fa-solid:rocket` is the prefix form.
+  if (!raw.includes(':') && (tokens.length > 1 || /^fa-/i.test(raw))) {
+    const classes = readFontAwesomeClasses(tokens);
+    if (classes.name) return migrateFontAwesome(toIconName(classes.name), classes.style ?? options.style, library, contract);
+  }
+
+  const colon = raw.indexOf(':');
+  const prefix = colon > 0 ? raw.slice(0, colon).toLowerCase() : undefined;
+  const name = toIconName(colon > 0 ? raw.slice(colon + 1) : raw);
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) return { note: `icon "${raw}" is not an icon name; left out` };
+  if (prefix === 'lucide') return migrateLucide(name, library, contract);
+  if (prefix === 'tabler' || prefix === 'tabler-filled') return migrateTabler(name, prefix === 'tabler-filled' ? 'filled' : options.style, library, contract);
+  if (prefix === 'fa' || prefix?.startsWith('fa-')) return migrateFontAwesome(name, prefix === 'fa' ? options.style : FONT_AWESOME_STYLE_TOKENS[prefix] ?? prefix.slice(3), library, contract);
+  if (prefix) return { note: `icon "${raw}" names an icon library the platform does not draw; left out` };
+
+  const sourceLibrary = options.sourceLibrary?.toLowerCase();
+  if (sourceLibrary === 'lucide') return migrateLucide(name, library, contract);
+  // On a Tabler site, a name stated alone is a Tabler name.
+  if (sourceLibrary === 'tabler' || (!sourceLibrary && library === 'tabler')) return migrateTabler(name, options.style, library, contract);
+  if (sourceLibrary === 'fontawesome' || library === 'fontawesome') return migrateFontAwesome(name, options.style, library, contract);
+  // A bare name on a Lucide site: a name both libraries draw differently is read as the Font
+  // Awesome picture sources mean by it (`bolt` is lightning), then Lucide's own name, then a Font
+  // Awesome name Lucide draws the same idea under, else the Font Awesome icon itself.
+  const differentPicture = SAME_NAME_DIFFERENT_PICTURE[name];
+  if (differentPicture && iconInSet('lucide', differentPicture, contract)) return { value: iconValueForPick('lucide', differentPicture, library) };
+  const lucide = iconInSet('lucide', ICON_EQUIVALENTS_NEWER_LUCIDE[name] ?? name, contract);
+  if (lucide) return { value: iconValueForPick('lucide', lucide, library) };
+  const equivalent = ICON_EQUIVALENTS[name];
+  if (equivalent && iconInSet('lucide', equivalent, contract)) return { value: iconValueForPick('lucide', equivalent, library) };
+  return migrateFontAwesome(name, options.style, library, contract);
 }
 
 /** Redirect rule support check against the platform. */

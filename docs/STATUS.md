@@ -281,3 +281,34 @@ Two things changed here for that release. A customer's name and their site's add
 log and in four test fixtures; both now name the source kind rather than the customer, the way the
 repository's own rule has always required. The contract extractor no longer defaults to one
 person's home directory, and the repository states its licence.
+
+## 2026-10-05 — Font Awesome names carry over
+
+The platform now draws Font Awesome Free (solid, regular, brands) beside Lucide, chosen per site with
+`icons.library` and per icon with a prefix (`lucide:rocket`, `fa-brands:github`), and takes image paths
+and URLs as icons (DAI-465). The migrator stopped translating Font Awesome into Lucide by hand.
+
+`plan/site.yaml` proposes `iconLibrary`: `fontawesome` for Mintlify (unless `docs.json` says `lucide`;
+`tabler` is drawn from Lucide and listed under `notCarried`), GitBook, ReadMe and Fern; `lucide`
+otherwise, and for a workspace planned before the setting. `nav` writes it as `icons.library`.
+`migrateIcon` in the content contract writes every icon for that library: names as written, the style
+Mintlify's `iconType` or a Fern/ReadMe class string states (`fa-regular:bell`), a Pro style or Pro-only
+icon as the nearest Free one or the same idea in Lucide, and icon files kept only once hosted in the media library: the platform draws no icon file from another site, so a page never waits on one, and does not serve project files as icons yet. Every substitution is a
+note: navigation ones in `report/navigation-icons.json`, component ones in the page's conversion notes.
+
+Fixed on the way: a navigation icon nothing draws was dropped with no note; Mintlify and ReadMe `Tab`
+icons were lost silently, as were Fern `docs.yml` icons; GitBook card tables dropped brand icons Font
+Awesome draws; component icon files (`icon="/icons/x.svg"`) were never hosted. The contract records the
+four sets read from the app's packages (1,826 Lucide spellings; 1,422 solid, 169 regular and 572 brands
+icons, with Font Awesome's older names), and the icon value contract is a generated, hash-checked copy
+of `documentation-ai-backend/packages/icon-contract`.
+
+## 2026-10-06 — Tabler names carry over
+
+The platform now draws Tabler Icons (outline and filled) as a third library: `icons.library: tabler`,
+and the prefixes `tabler:` (outline, then filled) and `tabler-filled:`. A Mintlify site whose
+`docs.json` says `tabler` is planned as a Tabler site and its names are kept as written; it is no
+longer drawn from Lucide or listed under `notCarried`. `migrateIcon` draws a Tabler name outline unless
+the source asks for filled, a name Tabler lacks from Lucide with a note, and leaves out what neither
+draws. The contract records Tabler's names from the renderer's `@tabler/icons-react`, with the old
+names of renamed icons and the `-filled` spelling of filled ones.

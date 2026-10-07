@@ -27,6 +27,8 @@ export interface SiteBranding {
   seo?: Record<string, string | boolean>;
   /** What the source states that the platform has no place for; reported, never written. */
   unsupported?: string[];
+  /** The library the source draws icons named alone from, when it states one the platform has. */
+  iconLibrary?: 'lucide' | 'fontawesome' | 'tabler';
 }
 
 export interface NavbarLink { title: string; link: string }
@@ -91,6 +93,9 @@ export function mintlifyBranding(config: Record<string, unknown>): SiteBranding 
   if (config.fonts) unsupported.push('fonts: the platform sets its own typography; a custom stylesheet can change it');
   if (record(config.banner)) unsupported.push('banner: the platform has no announcement banner');
   if (config.background) unsupported.push('background decoration: no counterpart');
+  // Mintlify draws icons named alone from Font Awesome unless docs.json says otherwise.
+  const statedLibrary = text(record(config.icons), 'library');
+  const iconLibrary = statedLibrary === 'lucide' || statedLibrary === 'tabler' ? statedLibrary : 'fontawesome';
   const branding = compact({
     name: text(config, 'name'),
     description: text(config, 'description'),
@@ -101,7 +106,7 @@ export function mintlifyBranding(config: Record<string, unknown>): SiteBranding 
     seo: Object.keys(seo).length ? seo : undefined,
     unsupported,
   });
-  return branding ? { evidence: 'mintlify-config', ...branding } : undefined;
+  return { evidence: 'mintlify-config', ...(branding ?? {}), iconLibrary };
 }
 
 const attr = (node: Element, name: string): string => (getAttributeValue(node, name) ?? '').trim();

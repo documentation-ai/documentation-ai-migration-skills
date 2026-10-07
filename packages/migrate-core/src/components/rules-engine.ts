@@ -15,7 +15,7 @@ import type { DiscoveredNavigationNode } from '../scrape/discovery.js';
 import { walkBlocks, inlineText, blocksText, isBlockWithChildren } from '../ir/types.js';
 import { markdownToIr } from '../ir/from-markdown.js';
 import { Ledger } from '../ledger/dispositions.js';
-import { drawableIconName } from '@dai/content-contract';
+import { DEFAULT_ICON_LIBRARY, migrateIcon, type IconLibrary } from '@dai/content-contract';
 import { sanitizeHtmlToJsx } from './sanitize.js';
 import { blocksToMdx } from '../ir/to-dai-mdx.js';
 import { loadContract } from '@dai/content-contract';
@@ -83,6 +83,8 @@ export interface EngineOptions {
   iframeHosts?: string[];
   /** MadCap Flare navigation data frozen with the capture, by URL: the tables of contents a landing page's tile menus draw. */
   flareData?: ReadonlyMap<string, string>;
+  /** The migrated site's icons.library, from the reviewed site plan. Lucide when unset, as before. */
+  iconLibrary?: IconLibrary;
 }
 
 interface HandlerResult { blocks: Block[]; lossy?: string[]; /** Links the rule wrote by the operator's decision, recorded in the ledger so verify can tell them from links the source authored. */ declaredLinks?: string[] }
@@ -230,12 +232,19 @@ const HANDLERS: Record<string, RestructureHandler> = {
     return { blocks: [{ id: node.id, type: 'dai', name: 'Columns', props: { cols: Math.min(4, Math.max(2, count)) }, children: kids, rule: rule.id }] };
   } },
   /** A tab-set whose tabs carry `title`; ensures each child is a Tab. */
-  'tabs': { reads: [], run: (node, rule) => {
+  'tabs': { reads: [], run: (node, rule, ctx) => {
+    const lossy: string[] = [];
     const tabs: Block[] = node.children.map((c) => {
-      if (c.type === 'component') return { id: c.id, type: 'dai', name: 'Tab', props: { title: String(c.props.title ?? c.props.label ?? 'Tab') }, children: c.children, rule: rule.id } as DaiComponentNode;
-      return c;
+      if (c.type !== 'component') return c;
+      const title = String(c.props.title ?? c.props.label ?? 'Tab');
+      // A tab's icon sits on the tab, not on the set, so it is written for the site's library here.
+      const migrated = c.props.icon === undefined || c.props.icon === null
+        ? {}
+        : migrateIcon(c.props.icon, ctx.iconLibrary ?? DEFAULT_ICON_LIBRARY, { style: typeof c.props.iconType === 'string' ? c.props.iconType : undefined });
+      if (migrated.note) lossy.push(`tab "${title}": ${migrated.note}`);
+      return { id: c.id, type: 'dai', name: 'Tab', props: { title, ...(migrated.value ? { icon: migrated.value } : {}) }, children: c.children, rule: rule.id } as DaiComponentNode;
     });
-    return { blocks: [{ id: node.id, type: 'dai', name: 'Tabs', props: {}, children: tabs, rule: rule.id }] };
+    return { blocks: [{ id: node.id, type: 'dai', name: 'Tabs', props: {}, children: tabs, rule: rule.id }], lossy };
   } },
   /** Numbered list → Steps/Step (title = first line of the item). */
   'list-to-steps': { reads: [], run: (node, rule) => {
@@ -573,7 +582,7 @@ export class RulesEngine {
       handlerLossy = outcome.lossy ?? [];
       declaredLinks = outcome.declaredLinks ?? [];
       if (declaredLinks.length) this.declared.set(pageId, new Set([...(this.declared.get(pageId) ?? []), ...declaredLinks]));
-      mapped = handler.reads;
+      mapped = [...handler.reads];
     } else if (rule.children === 'unwrap') {
       result = node.children;
       mapped = [];
@@ -594,19 +603,22 @@ export class RulesEngine {
     } else {
       throw new Error(`Rule ${rule.id} has neither to, handler nor children:unwrap`);
     }
-    // An icon is written under the name the renderer's library draws it by. Sources spell Font Awesome
-    // (Mintlify's and GitBook's default) or a newer Lucide; a name the renderer does not have draws
-    // nothing, silently, so it is translated where an equivalent exists and otherwise left out and said.
+    // An icon is written for the site's icon library. A Font Awesome name (Mintlify's, GitBook's,
+    // ReadMe's and Fern's) stays one; a style the source states beside it (Mintlify's iconType) is
+    // kept where Font Awesome Free has it; anything drawn differently, or not at all, is said.
     const iconNotes: string[] = [];
+    const statedStyle = typeof node.props.iconType === 'string' ? node.props.iconType : undefined;
     result = result.map((block): Block => {
       if (block.type !== 'dai' || typeof block.props.icon !== 'string') return block;
       const stated = block.props.icon;
-      const drawable = drawableIconName(stated);
-      if (drawable === stated) return block;
-      const { icon: _icon, ...rest } = block.props;
-      if (!drawable) iconNotes.push(`icon "${stated}" has no equivalent the renderer draws; left out`);
-      return { ...block, props: drawable ? { ...rest, icon: drawable } : rest };
+      const migrated = migrateIcon(stated, this.opts.iconLibrary ?? DEFAULT_ICON_LIBRARY, { style: statedStyle });
+      if (migrated.note) iconNotes.push(migrated.note);
+      if (migrated.value === stated) return block;
+      // Rewritten in place, so the attribute keeps its position in the written MDX.
+      const props = Object.entries(block.props).flatMap(([key, value]) => (key !== 'icon' ? [[key, value]] : migrated.value ? [[key, migrated.value]] : []));
+      return { ...block, props: Object.fromEntries(props) };
     });
+    if (statedStyle && result.some((block) => block.type === 'dai' && typeof block.props.icon === 'string')) mapped.push('iconType');
     const authored = Object.keys(node.props).filter((p) => node.props[p] !== undefined && node.props[p] !== null);
     const dropped = rule.drop ?? [];
     const lossy = [

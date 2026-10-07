@@ -585,7 +585,10 @@ export function extractMintlifyNavigation(html: string, baseUrl: string, options
       const text = (key: string): string | undefined => (typeof node[key] === 'string' && (node[key] as string).trim() ? (node[key] as string).trim() : undefined);
       const operation = text('openapi') ?? text('api');
       const method = operation ? /(?:^|\s)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|TRACE|WEBHOOK)\s/i.exec(`${operation} `)?.[1]?.toUpperCase() : undefined;
-      const presentation = Object.fromEntries(Object.entries({ icon: text('icon'), badge: text('tag'), method, mode: text('mode') }).filter((entry) => entry[1] !== undefined));
+      // `iconType` is the Font Awesome style of the entry's icon, written in the prefix form (`fa-regular:bell`).
+      const icon = text('icon'); const iconType = text('iconType');
+      const styledIcon = icon && iconType && /^[a-z0-9-]+$/i.test(icon) ? `fa-${iconType}:${icon}` : icon;
+      const presentation = Object.fromEntries(Object.entries({ icon: styledIcon, badge: text('tag'), method, mode: text('mode') }).filter((entry) => entry[1] !== undefined));
       return [{ type: 'page' as const, url, title: sidebarTitle ?? title, ...presentation, ...hidden }];
     }
     // Container kinds survive discovery; flattening switchers changes source structure.

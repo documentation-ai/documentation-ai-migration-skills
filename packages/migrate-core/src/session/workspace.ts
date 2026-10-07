@@ -113,6 +113,8 @@ export interface Session {
     assetPlan?: string;
     /** plan/site.yaml as nav applied it: presentation, so a change asks for nav again, not convert. */
     sitePlan?: string;
+    /** The icons.library convert wrote page icons for: the one site.yaml setting that asks for convert again. */
+    convertIconLibrary?: string;
     blockExclusions?: string;
     canonicalOutput?: string;
     /** Inputs (snapshot + plans + asset manifest) of the last convert, and its output hash; a repeat over identical inputs proves determinism. */

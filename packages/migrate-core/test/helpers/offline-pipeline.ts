@@ -128,7 +128,7 @@ export async function runOfflinePipeline(input: OfflineRunInput): Promise<Offlin
   const meta = input.platformMeta ?? {};
   const navigation = buildDocumentationNavigation(tree, written, meta);
   // The same site settings the nav command writes, so the harness cannot carry what the CLI would not.
-  writeFileSync(join(outputDir, 'documentation.json'), JSON.stringify({ ...documentationSiteSettings({ name: meta.name }).settings, ...navigation }, null, 2));
+  writeFileSync(join(outputDir, 'documentation.json'), JSON.stringify({ ...documentationSiteSettings({ name: meta.name }).settings, navigation: navigation.navigation }, null, 2));
 
   const gateInput = (): GateInput => {
     const evidence = sourceEvidence(workspace, outputDir, tree, input.seedUrl, meta);

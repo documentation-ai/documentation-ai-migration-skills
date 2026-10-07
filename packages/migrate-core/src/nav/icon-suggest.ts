@@ -10,11 +10,12 @@
  *
  * Two properties make that safe to write unseen. It is deterministic: the same label always yields
  * the same icon, so a migration re-run produces the same file and the preview check compares like
- * with like. And every name is checked against the renderer's own icon list before it is written,
- * so an entry never carries a name that silently draws nothing. The site plan decides whether any
- * of this is written at all, and a person reviews the result at gate 2 with the other plans.
+ * with like. And every name is checked against the renderer's own Lucide set before it is written,
+ * so an entry never carries a name that silently draws nothing. Suggestions are Lucide icons; on a
+ * Font Awesome site they are written as `lucide:<name>`. The site plan decides whether any of this
+ * is written at all, and a person reviews the result at gate 2 with the other plans.
  */
-import { drawableIconName, loadContract } from '@dai/content-contract';
+import { DEFAULT_ICON_LIBRARY, iconInSet, iconValueForPick, loadContract, type IconLibrary } from '@dai/content-contract';
 
 /** What the site plan asks for. `source` writes only what the source states; `none` writes no icon at all. */
 export type IconPolicy = 'source' | 'suggested' | 'none';
@@ -203,7 +204,7 @@ export function suggestIconName(label: unknown, kind: string, contract = loadCon
   if (typeof label !== 'string' || !label.trim()) return undefined;
   const text = normalize(label);
   if (!text) return undefined;
-  const drawable = (name: string | undefined): string | undefined => (name && new Set(contract.icons.names).has(name) ? name : undefined);
+  const drawable = (name: string | undefined): string | undefined => (name ? iconInSet('lucide', name, contract) : undefined);
   // A changelog groups its entries by year, and a bare year says nothing a word list can read.
   if (/^(?:19|20)\d{2}$/.test(text)) return drawable('calendar');
   for (const [phrase, icon] of PHRASES) if (text === phrase || text.includes(phrase)) { const drawn = drawable(icon); if (drawn) return drawn; }
@@ -228,8 +229,10 @@ const containerKindOf = (node: Record<string, unknown>): string | undefined => C
 export function applyIconPolicy(
   navigation: Record<string, unknown>,
   policy: IconPolicy,
+  library: IconLibrary = DEFAULT_ICON_LIBRARY,
   contract = loadContract(),
 ): { navigation: Record<string, unknown>; added: number; removed: number } {
+  const written = (lucideName: string) => iconValueForPick('lucide', lucideName, library);
   let added = 0;
   let removed = 0;
   const accepts = (kind: string, prop: string): boolean => (contract.navigation.containerProps[kind] ?? []).includes(prop);
@@ -247,7 +250,7 @@ export function applyIconPolicy(
       // A container that only links out is a button, not a section; the platform draws it in the
       // bar rather than the sidebar, and an invented marker there is noise.
       const icon = suggestIconName(node[ownKind], ownKind, contract);
-      if (icon) { node.icon = icon; added += 1; }
+      if (icon) { node.icon = written(icon); added += 1; }
     }
 
     for (const key of CHILD_KEYS) {
@@ -256,7 +259,7 @@ export function applyIconPolicy(
       const childKind = key === 'pages' ? 'page' : key.slice(0, -1);
       node[key] = (visit(children, childKind) as unknown[]);
       if (policy === 'suggested' && key === 'pages' && pageAcceptsIcon) {
-        const result = fillPageIcons(node[key] as unknown[], contract);
+        const result = fillPageIcons(node[key] as unknown[], written, contract);
         node[key] = result.pages;
         added += result.added;
       }
@@ -273,7 +276,7 @@ export function applyIconPolicy(
  * A `pages` array may also hold nested groups; those are containers and were handled on the way
  * down, so only the entries with a title are counted and filled here.
  */
-function fillPageIcons(pages: unknown[], contract: ReturnType<typeof loadContract>): { pages: unknown[]; added: number } {
+function fillPageIcons(pages: unknown[], written: (lucideName: string) => string, contract: ReturnType<typeof loadContract>): { pages: unknown[]; added: number } {
   const isPage = (item: unknown): item is Record<string, unknown> =>
     !!item && typeof item === 'object' && typeof (item as Record<string, unknown>).title === 'string' && !containerKindOf(item as Record<string, unknown>);
   const rows = pages.filter(isPage);
@@ -292,7 +295,7 @@ function fillPageIcons(pages: unknown[], contract: ReturnType<typeof loadContrac
     if (!isPage(item)) return item;
     const icon = named.get(item) ?? PAGE_FILLER;
     added += 1;
-    return { ...item, icon };
+    return { ...item, icon: written(icon) };
   });
   return { pages: filled, added };
 }
@@ -302,5 +305,3 @@ export function suggestableIconNames(): string[] {
   return [...new Set([...PHRASES.map(([, icon]) => icon), ...Object.values(KEYWORDS), ...Object.values(CONTAINER_FALLBACK), PAGE_FILLER])];
 }
 
-/** Reads an icon a source states, under the name the renderer draws it by. Re-exported so callers need one import. */
-export { drawableIconName };

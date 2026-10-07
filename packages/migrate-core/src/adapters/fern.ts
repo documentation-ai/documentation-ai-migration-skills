@@ -39,10 +39,12 @@ interface FernNavItem {
   layout?: FernNavItem[];
   slug?: string;
   hidden?: boolean;
+  /** `fa-solid fa-rocket`, a bare name, or a path to an image; read as the source states it. */
+  icon?: string;
 }
 
 interface FernDocs {
-  tabs?: Record<string, { 'display-name'?: string; slug?: string; hidden?: boolean }>;
+  tabs?: Record<string, { 'display-name'?: string; slug?: string; hidden?: boolean; icon?: string }>;
   navigation?: FernNavItem[];
   versions?: Array<{ 'display-name'?: string; path?: string }>;
 }
@@ -99,9 +101,10 @@ export function readFernRepo(rootIn: string): FernRepo {
     const out: SourceNavigationNode[] = [];
     for (const item of items) {
       if (item.api) { apiSections.push(item.api); continue; }
+      const icon = typeof item.icon === 'string' && item.icon.trim() ? { icon: item.icon.trim() } : {};
       if (item.page && item.path) {
         const node = addPage(item.page, item.path, group);
-        if (node) out.push(node);
+        if (node) out.push({ ...node, ...icon });
         continue;
       }
       if (item.section) {
@@ -109,7 +112,7 @@ export function readFernRepo(rootIn: string): FernRepo {
         // A section may name its own overview page, which reads first inside the section.
         if (item.path) { const node = addPage(item.section, item.path, [...group, item.section]); if (node) children.push(node); }
         children.push(...walk(item.contents ?? [], [...group, item.section]));
-        if (children.length) out.push({ type: 'group', label: item.section, children });
+        if (children.length) out.push({ type: 'group', label: item.section, children, ...icon });
         continue;
       }
       if (item.folder) {
@@ -118,7 +121,7 @@ export function readFernRepo(rootIn: string): FernRepo {
         const children = folderPages(resolve(fernDir, item.folder))
           .map((file) => addPage(undefined, relative(fernDir, file), [...group, label]))
           .filter((node): node is SourceNavigationNode => !!node);
-        if (children.length) out.push({ type: 'group', label, children });
+        if (children.length) out.push({ type: 'group', label, children, ...icon });
       }
     }
     return out;
@@ -129,8 +132,9 @@ export function readFernRepo(rootIn: string): FernRepo {
     if (!entry.tab) continue;
     // A tabbed site states its tabs separately and gives each one a layout.
     const label = docs.tabs?.[entry.tab]?.['display-name'] ?? entry.tab;
+    const tabIcon = docs.tabs?.[entry.tab]?.icon;
     const children = walk(entry.layout ?? [], [label]);
-    if (children.length) navigation.push({ type: 'group', kind: 'tab', label, children });
+    if (children.length) navigation.push({ type: 'group', kind: 'tab', label, children, ...(typeof tabIcon === 'string' && tabIcon.trim() ? { icon: tabIcon.trim() } : {}) });
   }
   if (!navigation.length) navigation.push(...walk(docs.navigation ?? [], []));
 

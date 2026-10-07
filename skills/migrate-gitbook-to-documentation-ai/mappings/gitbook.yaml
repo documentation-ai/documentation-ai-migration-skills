@@ -49,7 +49,7 @@ rules:
     tier: T2
     match: { name: card }
     to: { name: Card, props: { title: $title, href: $href, icon: $icon, image: $image } }
-    note: "href is the card target column, image the cover column, icon the Font Awesome name without fa-"
+    note: "href is the card target column, image the cover column, icon the Font Awesome class (fa-leaf), kept for the site's Font Awesome library"
   - id: gitbook/columns
     tier: T4
     match: { name: columns }

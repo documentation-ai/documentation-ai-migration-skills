@@ -47,6 +47,23 @@
         }
       }
     },
+    "icons": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Icon settings. A bare icon name such as \"rocket\" is drawn from library; a prefixed name (lucide:, tabler:, tabler-filled:, fa:, fa-solid:, fa-regular:, fa-brands:) or a media library address picks its icon whatever this is set to.",
+      "properties": {
+        "library": {
+          "type": "string",
+          "enum": [
+            "lucide",
+            "fontawesome",
+            "tabler"
+          ],
+          "default": "lucide",
+          "description": "Library for bare icon names. lucide is the default. fontawesome uses Font Awesome Free: a bare name is looked up in solid, then brands, and falls back to Lucide only when Font Awesome has no icon by that name. tabler uses Tabler Icons: a bare name is looked up in outline, then filled, and falls back to Lucide only when Tabler has no icon by that name."
+        }
+      }
+    },
     "favicon": {
       "type": "string",
       "format": "uri-reference",
@@ -93,6 +110,17 @@
     },
     "ai": {
       "$ref": "#/$defs/ai"
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Retrieval settings for the AI assistant",
+      "properties": {
+        "strict-dimensions": {
+          "type": "boolean",
+          "description": "When true, the AI assistant only answers from the reader's current product, version and language. When false or omitted, it may fall back to other values and says where the answer came from"
+        }
+      }
     },
     "feedback": {
       "$ref": "#/$defs/feedback"
@@ -159,7 +187,8 @@
   "$defs": {
     "icon": {
       "type": "string",
-      "description": "Icon name from Lucide React icon library"
+      "maxLength": 2048,
+      "description": "An icon: a name from the site's icons.library (\"rocket\"); a name with a library prefix (\"lucide:rocket\", \"fa:rocket\", \"fa-solid:rocket\", \"fa-regular:bell\", \"fa-brands:github\"); or the address of an .svg, .png or .webp image in the media library. Icons linked from other websites are not drawn. SVG icons take the theme colour."
     },
     "httpMethod": {
       "type": "string",

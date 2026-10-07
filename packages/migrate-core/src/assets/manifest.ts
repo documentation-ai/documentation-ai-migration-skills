@@ -14,10 +14,11 @@ import { htmlMediaReferences, rewriteHtmlMedia } from './html-media.js';
 import { mapBlocks, walkBlocks } from '../ir/types.js';
 import { sha256 } from '../session/ids.js';
 import type { Fetcher } from '../scrape/fetcher.js';
+import { parseIconValue } from '@dai/content-contract';
 
-export type AssetReferenceKind = 'image' | 'video' | 'audio' | 'poster';
+export type AssetReferenceKind = 'image' | 'video' | 'audio' | 'poster' | 'icon';
 
-/** One use of an asset URL by a page: an image, video, audio file or poster. Source branding is never an asset of a migration. */
+/** One use of an asset URL by a page: an image, video, audio file, poster or icon file. Source branding is never an asset of a migration. */
 export interface AssetReference {
   kind: AssetReferenceKind;
   url: string;
@@ -76,9 +77,18 @@ export function writeManifest(workspace: string, m: AssetManifest): void {
 /** Elements whose `src` is a media file; every other component's `src` (iframe, script, embed) is a document, never fetched as an asset. */
 const MEDIA_ELEMENTS: Record<string, AssetReferenceKind> = { video: 'video', Video: 'video', audio: 'audio' };
 
-/** What a component prop refers to: `image`/`img` art on any component (Card), `src`/`poster` only on media elements. */
-function componentAssetKind(componentName: string, prop: string): AssetReferenceKind | undefined {
+/**
+ * What a component prop refers to: `image`/`img` art on any component (Card), `src`/`poster` only
+ * on media elements, and an `icon` only when it is a file (`/icons/brand.svg`, an https URL) rather
+ * than a library name. A hosted icon file is then served from the media library, where an SVG takes
+ * the site's theme colour; one that cannot be hosted is left out of its page with a note.
+ */
+function componentAssetKind(componentName: string, prop: string, value?: unknown): AssetReferenceKind | undefined {
   if (prop === 'image' || prop === 'img') return 'image';
+  if (prop === 'icon') {
+    const parsed = typeof value === 'string' ? parseIconValue(value) : undefined;
+    return parsed?.ok && parsed.value.kind !== 'library' ? 'icon' : undefined;
+  }
   const media = MEDIA_ELEMENTS[componentName];
   if (!media) return undefined;
   return prop === 'src' ? media : prop === 'poster' ? 'poster' : undefined;
@@ -139,7 +149,7 @@ function documentAssetReferences(doc: DocIR): AssetReference[] {
     else if (b.type === 'figure') image(b.image);
     else if (b.type === 'component' || b.type === 'dai') {
       for (const [prop, value] of Object.entries(b.props)) {
-        const kind = componentAssetKind(b.name, prop);
+        const kind = componentAssetKind(b.name, prop, value);
         if (kind && typeof value === 'string' && value) out.push({ kind, url: locate(value), page });
       }
     }
@@ -280,13 +290,19 @@ export function isSiteBrandingOnly(entry: AssetEntry): boolean {
   return entry.references.length > 0 && entry.references.every((reference) => reference.page?.id === SITE_BRANDING_PAGE);
 }
 
+/** A file used only as a component's icon: decoration beside a title the page still carries. */
+export function isIconOnly(entry: AssetEntry): boolean {
+  return entry.references.length > 0 && entry.references.every((reference) => reference.kind === 'icon');
+}
+
 /**
- * Assets a page needs that nobody hosts. A logo or favicon the site plan carries is not among them:
- * it is presentation, so one that cannot be hosted is left out of documentation.json and said so at
- * `nav`, rather than stopping a migration whose every page is whole.
+ * Assets a page needs that nobody hosts. A logo or favicon the site plan carries is not among them,
+ * nor is an icon file: both are presentation, so one that cannot be hosted is left out with a note
+ * (at `nav` for branding, at `convert` for an icon) rather than stopping a migration whose every
+ * page is whole.
  */
 export function unhostedAssets(m: AssetManifest): AssetEntry[] {
-  return Object.values(m.entries).filter((entry) => !entry.excluded && !isSiteBrandingOnly(entry) && (entry.status !== 'ingested' || !entry.finalUrl)
+  return Object.values(m.entries).filter((entry) => !entry.excluded && !isSiteBrandingOnly(entry) && !isIconOnly(entry) && (entry.status !== 'ingested' || !entry.finalUrl)
     // left where it is served today by a named person's decision, not for want of trying
     && !(m.keptExternal && entry.status === 'kept-external'));
 }
@@ -330,7 +346,7 @@ export function describeAssetEntry(entry: AssetEntry): string {
   return `${entry.sourceUrls[0]} (${uses}): ${state}`;
 }
 
-const REFERENCE_KIND_ORDER: AssetReferenceKind[] = ['image', 'video', 'audio', 'poster'];
+const REFERENCE_KIND_ORDER: AssetReferenceKind[] = ['image', 'video', 'audio', 'poster', 'icon'];
 
 /** "1 image, 1 video" for stage summaries; kinds with no references are omitted. */
 export function referenceTally(m: AssetManifest): string {
@@ -371,7 +387,7 @@ export function rewriteAssetRefs(doc: DocIR, m: AssetManifest): DocIR {
           case 'image': return withVariants(b, final);
           case 'figure': return { ...b, image: withVariants(b.image, final) };
           case 'rawHtml': return { ...b, value: rewriteHtmlMedia(b.value, final) };
-          case 'dai': case 'component': return { ...b, props: Object.fromEntries(Object.entries(b.props).map(([key, value]) => [key, componentAssetKind(b.name, key) && typeof value === 'string' ? final(value) : value])) };
+          case 'dai': case 'component': return { ...b, props: Object.fromEntries(Object.entries(b.props).map(([key, value]) => [key, componentAssetKind(b.name, key, value) && typeof value === 'string' ? final(value) : value])) };
           default: return b;
         }
       },

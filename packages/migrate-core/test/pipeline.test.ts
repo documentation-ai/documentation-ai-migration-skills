@@ -860,7 +860,7 @@ describe('gate semantics', () => {
       ] },
       { version: 'v1', pages: [{ title: 'Introduction', path: 'v1/introduction' }] },
     ] });
-    writeFileSync(join(out, 'documentation.json'), JSON.stringify({ name: repo.name, ...navigation }));
+    writeFileSync(join(out, 'documentation.json'), JSON.stringify({ name: repo.name, navigation: navigation.navigation }));
     const input = gateInput(ws, { treePages: tree.pages, sourceKind: 'repo', navigationSource: tree.navigationSource, expectedNavigation: buildDocumentationNavigation(tree, written, { openapi: repo.openapi }).navigation });
     const gates = runGates(input);
     expect(gate(gates, 'navigation-valid')).toMatchObject({ status: 'pass', count: 0 });

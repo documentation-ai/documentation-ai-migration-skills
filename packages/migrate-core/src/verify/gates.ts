@@ -15,7 +15,7 @@ import { redirectProblems } from '../urls/redirect-graph.js';
 import type { SiteLinks } from '../urls/site-links.js';
 import { sha256 } from '../session/ids.js';
 import { isSafeUrl } from '../components/sanitize.js';
-import { readManifest, type AssetManifest, excludedAssetEntry } from '../assets/manifest.js';
+import { readManifest, type AssetManifest, excludedAssetEntry, isIconOnly } from '../assets/manifest.js';
 import { markdownToIr } from '../ir/from-markdown.js';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfmFromMarkdown } from 'mdast-util-gfm';
@@ -444,7 +444,9 @@ export interface GateInput {
    * output no longer follows the reviewed decisions, so the gate fails; omitting these
    * reports the gate `not-run`, never `pass`.
    */
-  pinnedPlans?: { componentPlan?: string; urlPlan?: string; assetPlan?: string; sitePlan?: string; blockExclusions?: string; scopeDecisions?: string };
+  pinnedPlans?: { componentPlan?: string; urlPlan?: string; assetPlan?: string; sitePlan?: string; blockExclusions?: string; scopeDecisions?: string; convertIconLibrary?: string };
+  /** The icons.library plan/site.yaml names now; page icons were written for `pinnedPlans.convertIconLibrary`. */
+  iconLibrary?: string;
   pinnedSourceManifest?: string;
   pinnedAcquisition?: string;
   pinnedOpenapi?: string;
@@ -603,6 +605,8 @@ export function runGates(input: GateInput): GateResult[] {
     // Block exclusions are pinned by absence too: a file that appears after convert is a change.
     if (hashOf(planFile('block-exclusions.yaml')) !== pinned.blockExclusions) changed.push('block-exclusions.yaml');
     if (hashOf(planFile('scope-decisions.yaml')) !== pinned.scopeDecisions) changed.push('scope-decisions.yaml');
+    // Page icons are written for the site's icon library at convert, so that one site setting asks for convert again.
+    if (pinned.convertIconLibrary && input.iconLibrary && input.iconLibrary !== pinned.convertIconLibrary) changed.push('site.yaml iconLibrary');
     // The site plan is presentation and is applied by nav, so that is where it is pinned; a workspace
     // planned before there was one has neither the file nor the pin.
     const sitePlanChanged = hashOf(planFile('site.yaml')) !== pinned.sitePlan;
@@ -706,7 +710,8 @@ export function runGates(input: GateInput): GateResult[] {
   gates.push({ id: 'no-unsafe-urls', status: unsafeUrls ? 'fail' : 'pass', detail: `${unsafeUrls} unsafe link or asset URLs were stripped`, count: unsafeUrls, samples: unsafeSamples });
 
   const assets = readManifest(input.workspace);
-  const unresolvedAssets = Object.values(assets.entries).filter((e) => !e.excluded && (e.status === 'failed' || (assets.provider !== 'none' && (e.status === 'kept-external' || !e.finalUrl))));
+  // An icon file nobody could host is left out of its page with a note at convert, never a broken image.
+  const unresolvedAssets = Object.values(assets.entries).filter((e) => !e.excluded && !isIconOnly(e) && (e.status === 'failed' || (assets.provider !== 'none' && (e.status === 'kept-external' || !e.finalUrl))));
   gates.push({ id: 'assets-ready', status: unresolvedAssets.length ? 'fail' : 'pass', detail: assets.provider === 'none' ? `${Object.values(assets.entries).filter((e) => e.status === 'kept-external').length} assets remain at the addresses that serve them today (provider none)${assets.keptExternal ? `, by decision of ${assets.keptExternal.by}: they show for as long as those addresses stay online` : ''}` : `${unresolvedAssets.length} assets failed, remain external, or lack a final ingested URL${Object.values(assets.entries).filter((e) => e.excluded).length ? `; ${Object.values(assets.entries).filter((e) => e.excluded).length} excluded by approved decision` : ''}`, count: unresolvedAssets.length, samples: unresolvedAssets.slice(0, 5).flatMap((e) => e.sourceUrls.slice(0, 1)) });
 
   // 3. prose match + code blocks + tables

@@ -8,7 +8,7 @@ import { parse as parseYaml, stringify as toYaml } from 'yaml';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { slugify } from '../urls/slugger.js';
-import { drawableIconName, loadContract } from '@dai/content-contract';
+import { DEFAULT_ICON_LIBRARY, loadContract, migrateIcon, type IconLibrary } from '@dai/content-contract';
 import type { LlmsEntry } from '../scrape/published-markdown.js';
 
 export interface TreePage {
@@ -95,12 +95,27 @@ export type SourceNavigationNode =
 
 export type NavigationContainerKind = 'product' | 'language' | 'version' | 'tab' | 'dropdown' | 'menu' | 'group';
 
+/**
+ * An icon as a source states it, as one string: Mintlify also writes `{ name, style, library }`,
+ * which becomes the prefix form (`fa-regular:bell`, `lucide:zap`, `tabler:rocket`) the icon migration reads.
+ */
+export function sourceIconValue(icon: unknown): string | undefined {
+  if (typeof icon === 'string') return icon;
+  if (!icon || typeof icon !== 'object' || typeof (icon as { name?: unknown }).name !== 'string') return undefined;
+  const { name, style, library } = icon as { name: string; style?: unknown; library?: unknown };
+  if (library === 'lucide' || library === 'tabler') return `${library}:${name}`;
+  if (typeof style === 'string' && style) return `fa-${style}:${name}`;
+  return library === 'fontawesome' ? `fa:${name}` : name;
+}
+
 /** Only authored presentation metadata crosses this boundary. Undefined fields are omitted. */
 export function navigationMetadata(source: Record<string, unknown>): { icon?: string; href?: string; expandable?: boolean; description?: string; tags?: string; badge?: string; method?: string } {
   const result: ReturnType<typeof navigationMetadata> = {};
-  for (const key of ['icon', 'href', 'description', 'tags', 'badge', 'method'] as const) {
+  for (const key of ['href', 'description', 'tags', 'badge', 'method'] as const) {
     if (typeof source[key] === 'string') result[key] = source[key];
   }
+  const icon = sourceIconValue(source.icon);
+  if (icon) result.icon = icon;
   if (typeof source.expandable === 'boolean') result.expandable = source.expandable;
   return result;
 }
@@ -474,20 +489,18 @@ export function navigationMethod(value: unknown): string | undefined {
 }
 
 /**
- * Presentation a page entry carries. An icon is written under the name the renderer draws it by
- * (a source spells Font Awesome or a newer Lucide), and one it cannot draw is not written at all:
- * the renderer would show nothing for it, silently.
+ * Presentation a page entry carries. The icon is the source's own here; buildDocumentationNavigation
+ * migrates every icon in one pass, for the site's icon library.
  */
 function pageMetadata(page: { icon?: string; tags?: string; badge?: string; method?: string }): Record<string, string> {
-  return Object.fromEntries(Object.entries({ icon: drawableIconName(page.icon), tags: page.tags, badge: page.badge, method: navigationMethod(page.method) }).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== ''));
+  return Object.fromEntries(Object.entries({ icon: page.icon, tags: page.tags, badge: page.badge, method: navigationMethod(page.method) }).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== ''));
 }
 
 /** Presentation a container carries, limited to what the platform accepts on that kind of container: a description exists only on a dropdown and a menu. */
 function containerPresentation(node: { icon?: string; href?: string; expandable?: boolean; description?: string }, kind: string): Record<string, string | boolean> {
   const accepted = new Set(loadContract().navigation.containerProps[kind] ?? []);
   const out: Record<string, string | boolean> = {};
-  const icon = drawableIconName(node.icon);
-  if (icon && accepted.has('icon')) out.icon = icon;
+  if (typeof node.icon === 'string' && node.icon && accepted.has('icon')) out.icon = node.icon;
   if (typeof node.href === 'string' && node.href && accepted.has('href')) out.href = node.href;
   if (typeof node.description === 'string' && node.description && accepted.has('description')) out.description = node.description;
   if (typeof node.expandable === 'boolean' && accepted.has('expandable')) out.expandable = node.expandable;
@@ -591,6 +604,8 @@ export function attachGroupOpenapi(nav: { navigation: Record<string, unknown> },
 export interface GroupOpenapiRef { groupPath: string[]; spec: string; version?: string; locale?: string }
 
 export interface DocumentationNavigationMeta {
+  /** The migrated site's icons.library; every icon is written for it. Lucide when unset, as before. */
+  iconLibrary?: IconLibrary;
   openapi?: GroupOpenapiRef[];
   /**
    * Endpoint pages, by page id: `"api-reference/<spec> METHOD /path"`. Documentation.AI binds a page
@@ -664,7 +679,7 @@ function bindPageOperations(node: unknown, bindings: ReadonlyMap<string, string>
   return visit(node) as Record<string, unknown>;
 }
 
-export function buildDocumentationNavigation(tree: Tree, writtenPaths: ReadonlySet<string>, platformMeta: DocumentationNavigationMeta, unplaced: TreePage[] = []): { navigation: Record<string, unknown> } {
+export function buildDocumentationNavigation(tree: Tree, writtenPaths: ReadonlySet<string>, platformMeta: DocumentationNavigationMeta, unplaced: TreePage[] = []): { navigation: Record<string, unknown>; iconNotes: string[] } {
   const written = tree.pages.filter((page) => page.newPath !== undefined && writtenPaths.has(page.newPath));
   const bindings = new Map<string, string>();
   for (const page of written) {
@@ -683,7 +698,32 @@ export function buildDocumentationNavigation(tree: Tree, writtenPaths: ReadonlyS
   }
   // Applied here, so the navigation verification re-derives carries the same hub as the one written.
   if (tree.helpCenter) navigation = { navigation: attachHelpCenterHub(navigation.navigation, tree.helpCenter).navigation };
-  return navigation;
+  return migrateNavigationIcons(navigation.navigation, platformMeta.iconLibrary ?? DEFAULT_ICON_LIBRARY);
+}
+
+/**
+ * Every icon in the navigation, written for the site's icon library: a Font Awesome name stays
+ * one, a Pro style or a name Font Awesome Free lacks becomes the nearest icon the site draws, and an
+ * icon nothing draws is left out. Each of those is a note, because the reader sees it.
+ */
+export function migrateNavigationIcons(navigation: Record<string, unknown>, library: IconLibrary): { navigation: Record<string, unknown>; iconNotes: string[] } {
+  const iconNotes: string[] = [];
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (!node || typeof node !== 'object') return node;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (key !== 'icon') { out[key] = walk(value); continue; }
+      const migrated = migrateIcon(value, library);
+      if (migrated.value) out.icon = migrated.value;
+      if (migrated.note) {
+        const label = ['title', 'group', 'tab', 'dropdown', 'menu', 'product', 'version', 'language'].map((k) => (node as Record<string, unknown>)[k]).find((v) => typeof v === 'string');
+        iconNotes.push(`${label ? `"${label}": ` : ''}${migrated.note}`);
+      }
+    }
+    return out;
+  };
+  return { navigation: walk(navigation) as Record<string, unknown>, iconNotes };
 }
 
 /**
