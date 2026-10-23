@@ -19,7 +19,9 @@
     "test:proof": "vitest run --config vitest.proof.config.ts",
     "contract:extract": "tsx packages/content-contract/scripts/extract.ts",
     "documentation-ai-migrate": "tsx packages/migrate-core/src/cli.ts",
-    "test:scale": "vitest run --config vitest.scale.config.ts"
+    "test:scale": "vitest run --config vitest.scale.config.ts",
+    "version:bump": "tsx packages/migrate-core/scripts/plugin-version.ts bump",
+    "version:check": "tsx packages/migrate-core/scripts/plugin-version.ts check"
   },
   "bin": {
     "documentation-ai-migrate": "packages/migrate-core/bin/documentation-ai-migrate.mjs",

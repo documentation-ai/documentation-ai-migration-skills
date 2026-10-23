@@ -20,6 +20,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the version check compares this branch with the one it merges into
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -27,6 +30,11 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # Claude Code and Codex deliver a plugin update only when its version rises: a pull request
+      # that changes what customers install without raising it would never reach an installed copy.
+      - name: Plugin version
+        run: npm run version:check -- ${{ github.event_name == 'pull_request' && format('--base origin/{0}', github.base_ref) || '' }}
 
       - name: Types
         run: npm run typecheck
