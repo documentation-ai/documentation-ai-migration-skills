@@ -12,9 +12,10 @@
  * The file lives beside the plans and is not pinned by convert: accepting a rendered page changes
  * no output, so it must not invalidate the conversion it was rendered from.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseYaml, stringify as toYaml } from 'yaml';
+import { stringify as toYaml } from 'yaml';
+import { readEditedYaml } from '../session/edited-files.js';
 
 export interface PreviewAcceptance { route: string; reason: string; by: string; at: string }
 
@@ -32,7 +33,7 @@ export function previewAcceptancesPath(workspace: string): string {
 export function readPreviewAcceptances(workspace: string): PreviewAcceptance[] {
   const path = previewAcceptancesPath(workspace);
   if (!existsSync(path)) return [];
-  const parsed = parseYaml(readFileSync(path, 'utf8')) as { accepted?: unknown } | null;
+  const parsed = readEditedYaml<{ accepted?: unknown } | null>(path);
   const entries = Array.isArray(parsed?.accepted) ? parsed!.accepted : [];
   return entries.flatMap((entry): PreviewAcceptance[] => {
     const { route, reason, by, at } = (entry ?? {}) as Record<string, unknown>;

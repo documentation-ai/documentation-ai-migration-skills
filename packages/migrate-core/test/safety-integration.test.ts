@@ -8,7 +8,7 @@ import { collectAssets, readManifest } from '../src/assets/manifest.js';
 import { d360ArticleToIr, extractIfZip, type D360Article } from '../src/adapters/document360.js';
 import { ensureWorkspace } from '../src/session/workspace.js';
 import { sha256 } from '../src/session/ids.js';
-import { writeMigrationBranch } from '../src/write/migration-branch.js';
+import { MigrationBranchExistsError, writeMigrationBranch } from '../src/write/migration-branch.js';
 import type { DocIR } from '../src/ir/types.js';
 
 const cleanup: string[] = [];
@@ -94,5 +94,60 @@ describe('Git migration writer', () => {
     expect(git(repo, ['branch', '--show-current'])).toBe('main');
     expect(readFileSync(join(repo, 'operator-notes.txt'), 'utf8')).toBe('do not touch\n');
     expect(git(repo, ['show', `${result.commit}:guide.mdx`])).toContain('Hello');
+  });
+
+  /** A remote with `main`, its clone, and an output to write; `files` seeds `main`. */
+  function hosted(files: Record<string, string>) {
+    const root = temp('dai-git-');
+    const bare = join(root, 'remote.git'); const seed = join(root, 'seed'); const repo = join(root, 'checkout'); const output = join(root, 'output');
+    mkdirSync(output);
+    git(root, ['init', '--quiet', '--bare', bare]);
+    git(root, ['clone', '--quiet', bare, seed]);
+    git(seed, ['config', 'user.name', 'Test']); git(seed, ['config', 'user.email', 'test@example.com']);
+    for (const [path, content] of Object.entries(files)) { mkdirSync(join(seed, path, '..'), { recursive: true }); writeFileSync(join(seed, path), content); }
+    git(seed, ['add', '-A']); git(seed, ['commit', '--quiet', '-m', 'seed']); git(seed, ['branch', '-M', 'main']); git(seed, ['push', '--quiet', '-u', 'origin', 'main']);
+    git(bare, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    git(root, ['clone', '--quiet', bare, repo]);
+    git(repo, ['remote', 'set-url', 'origin', 'https://github.com/acme-docs/site.git']);
+    git(repo, ['config', `url.file://${bare}.insteadOf`, 'https://github.com/acme-docs/site.git']);
+    writeFileSync(join(output, 'documentation.json'), '{"navigation":{"pages":["guide"]}}\n');
+    writeFileSync(join(output, 'guide.mdx'), '---\ntitle: Guide\n---\n\nHello\n');
+    const write = (sessionId: string, extra: Partial<Parameters<typeof writeMigrationBranch>[0]> = {}) => writeMigrationBranch({ repoDir: repo, outputDir: output, sessionId, remote: 'https://github.com/acme-docs/site.git', allowedRemoteOrgs: ['acme-docs'], ...extra });
+    return { bare, repo, write };
+  }
+
+  /**
+   * Started from origin/main, the branch tracked it: GitHub Desktop's Push (or a plain `git push`)
+   * then sent the documentation-only commit to main, deleting everything else in the repository.
+   */
+  it('leaves an unpushed branch tracking nothing, and a pushed one tracking itself', () => {
+    const { repo, write } = hosted({ 'README.md': 'original\n' });
+    write('local-only');
+    expect(() => git(repo, ['rev-parse', '--abbrev-ref', 'migration/local-only@{upstream}'])).toThrow();
+    write('pushed', { push: true });
+    expect(git(repo, ['rev-parse', '--abbrev-ref', 'migration/pushed@{upstream}'])).toBe('origin/migration/pushed');
+  });
+
+  it('refuses to replace a repository that holds code, unless the person says so', () => {
+    const { repo, write } = hosted({ 'package.json': '{}\n', 'src/index.ts': 'export {};\n', 'docs/intro.md': '# Intro\n' });
+    expect(() => write('code')).toThrow(/holds a software project[\s\S]*package\.json, src\/index\.ts[\s\S]*--replace-repo-contents/);
+    // refused before anything was made, so nothing is left to collide with later
+    expect(() => git(repo, ['rev-parse', '--verify', '--quiet', 'refs/heads/migration/code'])).toThrow();
+    expect(write('code', { replaceRepoContents: true }).branch).toBe('migration/code');
+  });
+
+  it('names a taken branch with an error the CLI can answer with a revision', () => {
+    const { write } = hosted({ 'README.md': 'original\n' });
+    write('taken', { push: true });
+    expect(() => write('taken')).toThrow(MigrationBranchExistsError);
+  });
+
+  it('leaves no branch behind when the write stops half-way, so running it again works', () => {
+    const { bare, repo, write } = hosted({ 'README.md': 'original\n' });
+    writeFileSync(join(bare, 'hooks', 'pre-receive'), '#!/bin/sh\necho refused >&2\nexit 1\n', { mode: 0o755 });
+    expect(() => write('again', { push: true })).toThrow();
+    expect(() => git(repo, ['rev-parse', '--verify', '--quiet', 'refs/heads/migration/again'])).toThrow();
+    rmSync(join(bare, 'hooks', 'pre-receive'));
+    expect(write('again', { push: true }).pushed).toBe(true);
   });
 });

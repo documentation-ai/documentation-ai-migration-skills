@@ -11,8 +11,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { navigationMetadata, type NavigationContainerKind, type SourceNavigationNode, type Tree, type TreePage } from '../nav/tree.js';
-import type { RedirectRule } from '../urls/plan.js';
 import { pageIdFromPlatform } from '../session/ids.js';
+import { readEditedJson } from '../session/edited-files.js';
+import { sourceRedirects, type SourceRedirects } from './source-redirects.js';
 
 export interface MintlifyOpenApiRef { groupPath: string[]; spec: string; version?: string; locale?: string }
 
@@ -24,7 +25,7 @@ export interface MintlifyRepo {
   logo?: unknown;
   favicon?: string;
   tree: Tree;
-  redirects: { exact: RedirectRule[]; wildcard: RedirectRule[]; skipped: Array<{ source: string; reason: string }> };
+  redirects: SourceRedirects;
   openapi: MintlifyOpenApiRef[];
   /** Pages listed in navigation whose file does not exist. */
   missing: string[];
@@ -45,7 +46,7 @@ export function readMintlifyRepo(rootIn: string): MintlifyRepo {
   const root = resolve(rootIn);
   const configFile = existsSync(join(root, 'docs.json')) ? 'docs.json' : existsSync(join(root, 'mint.json')) ? 'mint.json' : undefined;
   if (!configFile) throw new Error(`no docs.json or mint.json under ${root}`);
-  const cfg = JSON.parse(readFileSync(join(root, configFile), 'utf8')) as Record<string, any>;
+  const cfg = readEditedJson<Record<string, any>>(join(root, configFile));
 
   const pages: TreePage[] = [];
   const pageById = new Map<string, TreePage>();
@@ -87,7 +88,9 @@ export function readMintlifyRepo(rootIn: string): MintlifyRepo {
     }
     const children: SourceNavigationNode[] = [];
     for (const k of DIVISIONS) if (k in node) children.push(...walk(node[k], next));
-    if (node.global && typeof node.global === 'object') children.push(...walk(node.global, next));
+    // `global` anchors and tabs are links Mintlify pins above every sidebar, not places in it: they
+    // are carried as the top bar's links (mintlifyBranding), the platform's link shown on every page.
+    // Walked into the navigation they sat beside its groups, which no navigation can state.
     if (!label || !children.length) return node.hidden === true ? children.map((child) => ({ ...child, hidden: true as const })) : children;
     return [{ type: 'group', kind: kind as NavigationContainerKind, label: String(label), ...navigationMetadata(node), ...hidden, children }];
   };
@@ -111,20 +114,7 @@ export function readMintlifyRepo(rootIn: string): MintlifyRepo {
     if (typeof data?.tag === 'string' && data.tag.trim() && p.badge === undefined) p.badge = data.tag.trim();
   }
 
-  // redirects: Mintlify supports :slug, :slug* and a trailing *; the platform supports exact and :param only
-  const exact: RedirectRule[] = []; const wildcard: RedirectRule[] = []; const skipped: Array<{ source: string; reason: string }> = [];
-  for (const r of (cfg.redirects ?? []) as Array<{ source: string; destination: string; permanent?: boolean }>) {
-    if (!r?.source || !r?.destination) continue;
-    const status = r.permanent === false ? 307 : 308;
-    if (/\*/.test(r.source)) {
-      const src = r.source.replace(/:(\w+)\*$/, '*').replace(/\*+$/, '*');
-      const dst = r.destination.replace(/:(\w+)\*$/, ':splat').replace(/\*$/, ':splat');
-      if (!/\*$/.test(src)) { skipped.push({ source: r.source, reason: 'wildcard not at the end' }); continue; }
-      wildcard.push({ source: src, destination: dst, statusCode: status });
-    } else exact.push({ source: r.source, destination: r.destination, statusCode: status });
-  }
-
-  return { root, configFile, name: cfg.name, colors: cfg.colors, logo: cfg.logo, favicon: cfg.favicon, tree: { scope: 'full', platform: 'mintlify', pages, navigation, navigationSource: 'source-config', defaultVersion, defaultLocale }, redirects: { exact, wildcard, skipped }, openapi, missing };
+  return { root, configFile, name: cfg.name, colors: cfg.colors, logo: cfg.logo, favicon: cfg.favicon, tree: { scope: 'full', platform: 'mintlify', pages, navigation, navigationSource: 'source-config', defaultVersion, defaultLocale }, redirects: sourceRedirects(cfg.redirects), openapi, missing };
 }
 
 /** Snippet resolver for Mintlify: imports are absolute from the repo root ("/snippets/x.mdx"). */

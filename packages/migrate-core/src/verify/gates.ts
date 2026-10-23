@@ -98,7 +98,12 @@ function isPlatformGlyph(block: Block): boolean {
 }
 
 export function isHtmlChromeNode(block: Block | undefined): boolean {
-  return block?.type === 'component' && (HTML_CHROME_ELEMENTS.has(block.name) || isPlatformChromeButton(block) || isPlatformGlyph(block));
+  return block?.type === 'component' && (HTML_CHROME_ELEMENTS.has(block.name) || isPlatformChromeButton(block) || isPlatformGlyph(block) || isPageStylesheet(block));
+}
+
+/** `<link rel="stylesheet">` in a page: styling it loads for itself, like an inline `<style>`; the platform applies site-wide CSS from documentation.json. */
+function isPageStylesheet(block: Block): boolean {
+  return block.type === 'component' && block.name === 'link' && String(block.props.rel ?? '').toLowerCase() === 'stylesheet' && !block.children.length;
 }
 
 /** Reviewer recorded by the rules engine when a mapping rule, not a person, dropped a node. */
@@ -1052,7 +1057,7 @@ function migratorPinnedGate(pinned: MigratorProvenance | undefined, current: Mig
   return {
     id: 'migrator-pinned',
     status: drift.length ? 'fail' : 'pass',
-    detail: drift.length ? `migrator changed since init: ${drift.join('; ')}; re-run init and convert with one migrator build` : `migrator ${describeMigrator(pinned)}`,
+    detail: drift.length ? `migrator changed since init: ${drift.join('; ')}. A migration is certified for one build of the migrator: run documentation-ai-migrate rebase --reason "<why>", then discover --offline and the stages after it again (the frozen source is kept)` : `migrator ${describeMigrator(pinned)}`,
     count: drift.length,
     samples: drift,
   };

@@ -46,18 +46,20 @@ The migration is the same in every case. What differs is how the result reaches 
 
 In every flow Documentation.AI builds a preview of what was delivered by itself, and the live site changes only when you merge.
 
+You can change your mind partway. A migration started for the MCP flow can still be written to a clone with `write --repo <folder>` (it then writes only to that repository's organisation), and one delivered by `write` can still be published. A branch or working version name already used by the other flow is never reused: the new delivery becomes a revision of its own, and says so.
+
 ---
 
 ## What you need
 
 | Need | Why |
 | --- | --- |
-| Node.js 22 or newer | the command line |
-| git, for the clone and git flows | the migration branch is pushed with your own git credentials |
+| Node.js 22.19 or newer | the command line. An older Node.js is named, with what to install, before anything runs |
+| git, for the clone and git flows only | the migration branch is pushed with your own git credentials. The MCP flow needs no git at all |
 | A Documentation.AI project and an account that can edit it | the target. No API key is needed in any flow; one is optional and only saves you copying the preview address |
 | Permission to read the source | **written permission from the site's owner before crawling a live site**, or use an export or the docs repository instead |
 | Chrome or Chromium (optional) | measures phone and tablet layout on the preview, and prints the PDF report. Everything else works without it |
-| Nothing extra for pictures | they are hosted in your project through the same sign-in. The project's API key is needed only for a picture with no public address, or one the source now serves differently |
+| Nothing extra for pictures | they are hosted in your project through the same sign-in. A picture no public address serves (a repository's own images, an SVG cleaned of scripts) goes through your project's upload page: you drop a folder of files once. No API key in any case |
 
 ---
 
@@ -65,9 +67,9 @@ In every flow Documentation.AI builds a preview of what was delivered by itself,
 
 ```bash
 git clone https://github.com/documentation-ai/documentation-ai-migration-skills.git ~/documentation-ai-migration-skills
-cd ~/documentation-ai-migration-skills
-npm install
 ```
+
+The first command you run installs what the command line needs (once, about a minute, from the exact versions in `package-lock.json`), so an installed plugin works however it was installed. Running `npm install` in the folder yourself does the same.
 
 **Claude Code**, as a plugin:
 
@@ -76,7 +78,7 @@ npm install
 /plugin install documentation-ai-migration@documentation-ai-migration
 ```
 
-You can add the marketplace straight from GitHub instead (`/plugin marketplace add documentation-ai/documentation-ai-migration-skills`); then run `npm install` once inside the folder Claude Code cloned it to. Or start Claude Code with the plugin loaded from disk: `claude --plugin-dir ~/documentation-ai-migration-skills`.
+You can add the marketplace straight from GitHub instead (`/plugin marketplace add documentation-ai/documentation-ai-migration-skills`). Or start Claude Code with the plugin loaded from disk: `claude --plugin-dir ~/documentation-ai-migration-skills`. An installed copy is not a git checkout, and needs none: the migration records the build it ran with by the content of its own files.
 
 Installing the plugin also connects Documentation.AI's Authoring MCP server (`https://api.documentation.ai/mcp`), which is what publishes your migrated pages and hosts your pictures. Your browser opens to sign in the first time something needs it.
 
@@ -140,7 +142,15 @@ npx documentation-ai-migrate publish --workspace $W                 # signs in a
 
 If `publish` stops half-way, run it again and it continues. Pages your project had before are taken out of the navigation (so they are no longer served) and left in place; `--remove-old-pages` deletes them. Go live by merging the working version in the dashboard. On a machine nobody sits at, set `DAI_API_KEY` to the project's key instead of signing in; with a key the preview address is looked up for you.
 
-**Pictures.** With no API key, `assets` hosts your pictures in the chosen project through your sign-in (`--provider dai-mcp`, the default): Documentation.AI fetches each one from the address it is published at, ten at a time, and checks it against the copy the migration captured. A picture with no public address, or one the source now serves differently, needs the project's API key (`DAI_API_KEY` and `DAI_API_BASE`) to upload the captured copy; without it, `assets` names those pictures and stops. You can instead keep all the pictures where they are served today with `assets --provider none --keep-external --by "Your Name"`; they keep working while the old site stays online, and the report reminds you to move them before it is switched off.
+**Pictures.** `assets` hosts your pictures in the chosen project through your sign-in (`--provider dai-mcp`, the default): Documentation.AI fetches each one from the address it is published at, ten at a time, and checks it against the copy the migration captured. A picture no public address serves - an image in your docs repository, an SVG the migration cleaned of scripts, a picture the source now serves differently - goes through your project's upload page instead. `assets` puts those files in `<workspace>/upload`, prints a link to the upload page, and stops:
+
+1. open the link (sign in if asked),
+2. drop every file from the folder onto the page,
+3. run `assets` again: it finds them in your media library and uses them.
+
+Files already in the library are found without asking you. With `DAI_API_KEY` and `DAI_API_BASE` set, the files are uploaded directly instead. You can also keep all the pictures where they are served today with `assets --provider none --keep-external --by "Your Name"`; they keep working while the old site stays online, and the report reminds you to move them before it is switched off.
+
+**The repository you write to.** Documentation.AI reads a repository's root, so the migration branch holds the documentation alone. `write` refuses to write over a repository that holds code (a `package.json`, source files) and names them: connect your project to a repository of its own. Pass `--replace-repo-contents` only when the repository is your old documentation site and replacing it is what you want. The branch tracks nothing until it is pushed, so a plain `git push` (or GitHub Desktop's Push) never sends it to your default branch.
 
 ---
 
@@ -172,26 +182,13 @@ codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true -
 
 Then type `Use $migrate-generic-to-documentation-ai to migrate https://docs.acme.com onto Documentation.AI` and give `~/migrations/<name>` as the workspace. Inside that sandbox `npx` cannot run, so the skill has Codex call `node packages/migrate-core/bin/documentation-ai-migrate.mjs` directly. For the MCP flow, Codex hands you the one `publish` command to run in your own terminal, because the browser sign-in is yours. To pick up a new version later: `codex plugin remove documentation-ai-migration@documentation-ai-migration`, then `codex plugin add` again.
 
-**MCP hosts.** The MCP server is this same command line, served over stdio:
+**MCP hosts.** The MCP server is this same command line, served over stdio. Print the block your host needs, with this machine's paths already in it, and copy it from the terminal:
 
-```json
-{
-  "mcpServers": {
-    "documentation-ai-migrate": {
-      "command": "node",
-      "args": ["/absolute/path/to/documentation-ai-migration-skills/packages/migrate-core/bin/documentation-ai-migrate.mjs", "mcp"]
-    }
-  }
-}
+```bash
+node ~/documentation-ai-migration-skills/packages/migrate-core/bin/documentation-ai-migrate.mjs mcp --print-config claude-desktop   # or cursor, windsurf, vscode, codex
 ```
 
-That block goes in `claude_desktop_config.json` for Claude Desktop, `.cursor/mcp.json` for Cursor, or `.vscode/mcp.json` for VS Code (there the top-level key is `servers`). For Codex add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.documentation-ai-migrate]
-command = "node"
-args = ["/absolute/path/to/documentation-ai-migration-skills/packages/migrate-core/bin/documentation-ai-migrate.mjs", "mcp"]
-```
+It goes in `claude_desktop_config.json` for Claude Desktop, `.cursor/mcp.json` for Cursor, `.vscode/mcp.json` for VS Code, or `~/.codex/config.toml` for Codex. Copy it from the terminal or a plain-text editor: a chat window or a document turns straight quotes into curly ones, which no configuration file accepts.
 
 No key goes in the server's configuration: `publish` opens your browser to sign in. Whichever assistant drives it, the rules live in the command line: it refuses a workspace inside this folder, refuses to push unapproved scope, and records every approval with a person's name.
 
@@ -297,7 +294,8 @@ A stage that fails stops and names what to fix. Fix the plan (or the migrator) a
 | **ReadMe** project | sync repository or API v2 (`README_API_KEY`) |
 | **Document360** | export ZIP or folder, or the live site |
 | **MadCap Flare** published site | pages plus the navigation data files the site publishes; tile grids, tab strips |
-| **Fern, Docusaurus, Nextra** repositories | through the adapter registry; a sidebar written in executable JavaScript is reviewed at decision 1 |
+| **Fern** repository | `fern/docs.yml` and its version and product files: tabs, sections, folders, changelogs, landing pages, hidden pages; every address exactly as Fern serves it (`slug`, `skip-slug`, a page's frontmatter `slug`, versions, products, the basepath). Callouts, tabs, cards, accordions, steps, code blocks, `<Code src>`, `<Markdown src>`, buttons and parameter fields convert by rule; MDX comments are author notes and are not carried; logo, favicon, colours and top-bar links come from `docs.yml` |
+| **Docusaurus, Nextra** repositories | through the adapter registry; a sidebar written in executable JavaScript is reviewed at decision 1 |
 | Any Markdown/MDX/HTML folder, any live site | sitemaps, sidebars, same-site links |
 
 API reference pages are bound to their operation in your OpenAPI specification, with the method badge in the sidebar. A help centre can open on a card hub (`nav --help-center "<tab or group>" --by "<who>"`), in every language the site has. `docs/STATUS.md` records what is verified for each platform and where the boundaries are.
@@ -350,7 +348,7 @@ Keep credentials in the environment. No credential is ever written to a file, lo
 - A stopped stage is never worked around, a check is never weakened, `output/` is never edited by hand.
 - Nothing is substituted silently for something the source states.
 - No executable output: no scripts, no event handlers.
-- A branch that was pushed is never rewritten (`write --revision "<why>"` makes a new one).
+- A branch that was pushed is never rewritten (`write --revision "<why>"` makes a new one, and a name already taken becomes a revision by itself).
 - An assistant never approves a decision. A person does, by name.
 
 ---
@@ -361,8 +359,13 @@ Keep credentials in the environment. No credential is ever written to a file, lo
 | --- | --- | --- |
 | `refused until scope and plan are approved` | decisions 1 and 2 are not recorded, or lapsed because a plan changed | review, then `approve --gate 1` / `--gate 2 --by "…"` |
 | `human-gates-approved` fails after a re-run | the tree or a plan changed since the approval | review and approve again |
-| `migrator-pinned` fails | this tool changed since `init` | `rebase --reason "…"`, then `discover --offline` and continue |
-| `assets stopped: exact mode requires a hosted URL` | some pictures could not be hosted through the sign-in | the reason is listed per picture; set `DAI_API_KEY` and `DAI_API_BASE` to upload the captured copies, or `assets --provider none --keep-external --by "…"` |
+| `needs Node.js 22.19 or newer` | the Node.js that started the command is too old | install Node.js 22 or newer from nodejs.org (or `nvm install 22`) and run the same command again |
+| `its dependencies are not installed` | the first-run install could not run (no network, a sandbox) | run the `cd … && npm install` it prints, once |
+| `migrator-pinned` fails | this tool changed since `init` (a fix, or the plugin updated itself) | `rebase --reason "…"`, then `discover --offline` and continue; works for live sites and repositories alike |
+| `assets stopped` with three numbered steps | pictures no public address serves are waiting in `<workspace>/upload` | follow the steps: open the link, drop every file from that folder, run `assets` again |
+| `assets stopped: exact mode requires a hosted URL` | some pictures could not be hosted | the reason is listed per picture; `assets --provider none --keep-external --by "…"` keeps them where they are served today |
+| `holds a software project, not only documentation` | `write` was pointed at a repository with code in it | connect your project to a repository of its own; `--replace-repo-contents` only if the repository is your old docs site |
+| `is not valid JSON` / `is not valid YAML` | a file you edited does not parse; the file is named | curly quotes are read as straight ones where that is unambiguous; otherwise retype the quotes it names |
 | `browser-content` fails | a page of the preview is missing something a reader would look for | open `report/review-queue.md`, look at the page, then fix it or `accept` it |
 | `publish` stops with `duplicate_path` | the platform refuses a navigation that lists one page twice through the MCP server | deliver with `write --push` instead, or place the page once at decision 1 |
 | the "Learn" link in a dropdown opens `/null` | a link-only dropdown or menu item; the platform's renderer needs a fix | the preview check names these; report it to Documentation.AI |

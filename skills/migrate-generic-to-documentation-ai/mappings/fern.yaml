@@ -1,0 +1,121 @@
+# Fern (buildwithfern.com) components -> Documentation.AI. Read before generic.yaml, which still applies
+# (CardGroup and Card fall through to it only where this table has no rule).
+#
+# <Code src>, <Markdown src>, <CodeBlock title> and <Button> never reach these rules: the parser reads
+# them as the code, the included page, the titled code block and the link they show.
+platform: fern
+version: 1
+rules:
+  # One callout per intent, or <Callout intent="..."> naming it. A title is the callout's first line,
+  # in bold, as the reader saw it; the glyph is the intent's own and the target draws its kind's.
+  - id: fern/note
+    tier: T1
+    match: { name: Note }
+    handler: fern-callout
+  - id: fern/info
+    tier: T1
+    match: { name: Info }
+    handler: fern-callout
+  - id: fern/tip
+    tier: T1
+    match: { name: Tip }
+    handler: fern-callout
+  - id: fern/warning
+    tier: T1
+    match: { name: Warning }
+    handler: fern-callout
+  - id: fern/error
+    tier: T1
+    match: { name: Error }
+    handler: fern-callout
+  - id: fern/check
+    tier: T1
+    match: { name: Check }
+    handler: fern-callout
+  - id: fern/success
+    tier: T1
+    match: { name: Success }
+    handler: fern-callout
+  - id: fern/launch
+    tier: T1
+    match: { name: Launch }
+    handler: fern-callout
+  - id: fern/callout
+    tier: T1
+    match: { name: Callout }
+    handler: fern-callout
+  - id: fern/tabs
+    tier: T3
+    match: { name: Tabs }
+    handler: tabs
+  - id: fern/tab
+    tier: T1
+    match: { name: Tab }
+    to: { name: Tab, props: { title: $title, icon: $icon } }
+    # a tab's language switches every code block on a Fern page together; the target has no such switch
+    drop: [language]
+  - id: fern/accordion-group
+    tier: T1
+    match: { name: AccordionGroup }
+    to: { name: ExpandableGroup }
+  - id: fern/accordion
+    tier: T1
+    match: { name: Accordion }
+    to: { name: Expandable, props: { title: $title, defaultOpen: $defaultOpen } }
+    drop: [toc]
+  # Fern's own collapsible section (also what Fern's Mintlify importer writes), standalone or inside a field
+  - id: fern/expandable
+    tier: T1
+    match: { name: Expandable }
+    to: { name: Expandable, props: { title: $title, defaultOpen: $defaultOpen } }
+  - id: fern/steps
+    tier: T1
+    match: { name: Steps }
+    to: { name: Steps }
+    drop: [toc]
+  - id: fern/step
+    tier: T2
+    match: { name: Step }
+    to: { name: Step, props: { title: $title, icon: $icon } }
+    drop: [id, toc]
+  - id: fern/card-group
+    tier: T2
+    match: { name: CardGroup }
+    handler: cards-to-columns
+  - id: fern/card
+    tier: T2
+    match: { name: Card }
+    to: { name: Card, props: { title: $title, href: $href, icon: $icon } }
+    # where Fern places the glyph and how large it draws it is presentation
+    drop: [iconPosition, iconSize, color]
+    dropWhenExpression: [icon]
+  - id: fern/frame
+    tier: T2
+    match: { name: Frame }
+    handler: frame-to-image
+    drop: [background]
+  - id: fern/code-blocks
+    tier: T1
+    match: { name: CodeBlocks }
+    to: { name: CodeGroup }
+  # Fern names a parameter in `path`, as Mintlify does; its documented default has no place in the contract
+  - id: fern/param-field
+    tier: T2
+    match: { name: ParamField }
+    to: { name: ParamField, props: { path: $path, type: $type, required: $required, deprecated: $deprecated } }
+    drop: [default, toc]
+  # Content Fern draws beside the text (Aside) or indented (Indent): the words stay, in reading order
+  - id: fern/aside
+    tier: T3
+    match: { name: Aside }
+    children: unwrap
+    note: Fern shows this beside the article on wide screens; it is kept in reading order
+  - id: fern/indent
+    tier: T3
+    match: { name: Indent }
+    children: unwrap
+  # import and export lines are MDX plumbing, never page content
+  - id: fern/mdx-esm
+    tier: T1
+    match: { name: esm }
+    children: drop

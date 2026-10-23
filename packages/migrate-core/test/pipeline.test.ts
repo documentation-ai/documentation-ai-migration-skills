@@ -657,7 +657,7 @@ describe('gates', () => {
     expect(pass.gate.status).toBe('pass');
     const once = await runBrowserContentGate('https://preview.example/', [{ id: 'p', newPath: 'index', migrate: true, doc }], { ...options, render: async () => sidebar(['Home']) });
     expect(once.gate.status).toBe('fail');
-    expect(once.routes.find((route) => route.route === '(site)')!.problems.join(' ')).toContain('sidebar labels differ');
+    expect(once.routes.find((route) => route.route === '(site)')!.problems.join(' ')).toContain('navigation entries no rendered sidebar or top bar shows');
   });
   /**
    * A tabbed target shows one tab's pages at a time, so no single route's sidebar lists the whole

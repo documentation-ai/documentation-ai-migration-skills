@@ -94,3 +94,54 @@ describe('migrating into your own clone, with no API key', () => {
     expect(readFileSync(join(clone, 'my-notes.txt'), 'utf8')).toBe('uncommitted work in the clone\n');
   }, 240_000);
 });
+
+/**
+ * Switching delivery partway: a migration started for the MCP flow (no repository named at init)
+ * and then written to a clone. The write used to refuse because no organisation was allowed, and the
+ * branch name the MCP flow had already used for its working version was refused as taken.
+ */
+describe('changing how a migration is delivered, partway through', () => {
+  it('scopes the write to the repository named at write, and writes beside the name the MCP flow used', () => {
+    const repo = fileURLToPath(new URL('../../../', import.meta.url));
+    const root = temp();
+    const hosted = 'https://github.com/acme-docs/handbook.git';
+    const bare = join(root, 'host.git'); const seed = join(root, 'seed'); const clone = join(root, 'handbook');
+    const gitConfig = join(root, 'gitconfig');
+    writeFileSync(gitConfig, `[url "file://${bare}"]\n\tinsteadOf = ${hosted}\n[user]\n\tname = Test\n\temail = test@example.com\n[init]\n\tdefaultBranch = main\n`);
+    const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_NOSYSTEM: '1' };
+    git(root, ['init', '--quiet', '--bare', bare], gitEnv);
+    git(root, ['clone', '--quiet', bare, seed], gitEnv);
+    writeFileSync(join(seed, 'documentation.json'), '{"name":"Handbook","navigation":{"pages":[]}}\n');
+    git(seed, ['add', '-A'], gitEnv); git(seed, ['commit', '--quiet', '-m', 'quickstart'], gitEnv); git(seed, ['branch', '-M', 'main'], gitEnv); git(seed, ['push', '--quiet', '-u', 'origin', 'main'], gitEnv);
+    git(bare, ['symbolic-ref', 'HEAD', 'refs/heads/main'], gitEnv);
+    git(root, ['clone', '--quiet', hosted, clone], gitEnv);
+
+    const source = join(root, 'source'); mkdirSync(source);
+    writeFileSync(join(source, 'SUMMARY.md'), '# Table of contents\n\n* [Welcome](README.md)\n');
+    writeFileSync(join(source, 'README.md'), '# Welcome\n\nStart here.\n');
+    const workspace = join(root, 'ws');
+    const env = { ...Object.fromEntries(Object.entries(gitEnv).filter(([key]) => !/^(DAI_|MIGRATION_|FIRECRAWL_|README_|R2_|AWS_)/.test(key))), MIGRATION_WORKSPACE: workspace };
+    const cli = (...args: string[]): string => {
+      try { return execFileSync(process.execPath, [join(repo, 'node_modules/tsx/dist/cli.mjs'), join(repo, 'packages/migrate-core/src/cli.ts'), ...args], { cwd: repo, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
+      catch (error) { const failed = error as { stdout?: string; stderr?: string }; throw new Error(`documentation-ai-migrate ${args.join(' ')}\n${failed.stdout ?? ''}${failed.stderr ?? ''}`); }
+    };
+
+    // started for the MCP flow: no clone, no remote, so no organisation is recorded
+    cli('init', '--source', source, '--platform', 'gitbook');
+    expect(JSON.parse(readFileSync(join(workspace, 'plan', 'allowed-orgs.json'), 'utf8'))).toEqual([]);
+    for (const [stage, ...rest] of [['discover'], ['approve', '--gate', '1', '--by', 'owner'], ['acquire'], ['inventory'], ['plan'], ['approve', '--gate', '2', '--by', 'owner'], ['assets', '--provider', 'none'], ['convert'], ['convert'], ['nav']]) cli(stage, ...rest);
+    try { cli('verify'); } catch { /* no gate-3 approval yet */ }
+    cli('approve', '--gate', '3', '--by', 'owner');
+    // a publish through the MCP flow began on the migration's own name
+    const first = (JSON.parse(readFileSync(join(workspace, 'session.json'), 'utf8')) as { migrationId: string }).migrationId;
+    writeFileSync(join(workspace, 'report', 'mcp-publish.json'), JSON.stringify({ branch: `migration/${first}`, sent: {} }));
+
+    const written = cli('write', '--repo', clone, '--push');
+    expect(written).toContain('it may write only to github.com/acme-docs');
+    expect(written).toContain(`supersedes ${first}`);
+    expect(JSON.parse(readFileSync(join(workspace, 'plan', 'allowed-orgs.json'), 'utf8'))).toEqual(['github.com/acme-docs']);
+    const branch = /(migration\/mig-[0-9a-f]+) at [0-9a-f]{8} \(pushed\)/.exec(written)![1];
+    expect(branch).not.toBe(`migration/${first}`);
+    expect(git(bare, ['grep', '-l', 'Start here.', branch], gitEnv)).toMatch(/\.mdx$/);
+  }, 240_000);
+});

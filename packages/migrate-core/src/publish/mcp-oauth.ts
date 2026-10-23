@@ -114,7 +114,8 @@ export async function signInWithBrowser(options: SignInOptions): Promise<SignedI
     if (error) { finish(400, 'Sign-in was not completed', 'You can close this tab. The command line says what happened.'); settle?.reject(new Error(`sign-in was refused: ${url.searchParams.get('error_description') ?? error}`)); return; }
     const code = url.searchParams.get('code');
     if (!code) { finish(400, 'Sign-in was not completed', 'No authorization code arrived. Close this tab and run the command again.'); return; }
-    finish(200, 'Signed in to Documentation.AI', 'You can close this tab and go back to the terminal. The migration is being published.');
+    // the same sign-in serves choosing the project, hosting pictures and publishing: nothing here says which
+    finish(200, 'Signed in to Documentation.AI', 'You can close this tab and go back to the terminal, where the migration carries on.');
     settle?.resolve(code);
   });
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });

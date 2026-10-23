@@ -2,6 +2,17 @@
 platform: "*"
 version: 1
 rules:
+  # import and export lines (`import Tabs from '@theme/Tabs'`, `export const Highlight = ...`) are MDX
+  # plumbing: they define what a page uses and are never page content themselves
+  - id: generic/mdx-esm
+    tier: T1
+    match: { name: esm }
+    children: drop
+  # an empty element carrying only an id is the anchor an older link lands on; it is kept as that anchor
+  - id: generic/span-anchor
+    tier: T1
+    match: { name: span, props: { id: any } }
+    handler: anchor-div-to-heading
   - id: generic/details-expandable
     tier: T1
     match: { name: details }
@@ -9,8 +20,8 @@ rules:
   - id: generic/admonition-callout
     tier: T1
     match: { name: admonition }
-    to: { name: Callout, props: { kind: $map(kind) } }
-    note: "a themed aside (.note, .callout, .warning, .tip) is a callout; its class suffix names the kind through the contract value map"
+    handler: admonition-callout
+    note: "a themed aside (.note, .callout, .warning, .tip, Docusaurus :::tip[Title]) is a callout; its class suffix names the kind through the contract value map, and a title is its first line in bold"
   - id: generic/madcap-dropdown-expandable
     tier: T1
     match: { name: MCDropDown }

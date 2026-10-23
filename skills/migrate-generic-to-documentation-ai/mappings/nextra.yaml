@@ -1,0 +1,49 @@
+# Nextra (nextra.site) components -> Documentation.AI. Read before generic.yaml, which still applies.
+#
+# <Tabs items={[...]}> with <Tabs.Tab> children is read by the parser as titled tabs (the titles are
+# the parent's `items`), so the Tabs and Tab rules below see what every other source writes.
+platform: nextra
+version: 1
+rules:
+  # <Callout type="warning" emoji="...">: the type names the kind; the emoji is the callout's own glyph
+  - id: nextra/callout
+    tier: T1
+    match: { name: Callout }
+    handler: admonition-callout
+    drop: [emoji]
+  - id: nextra/tabs
+    tier: T3
+    match: { name: Tabs }
+    handler: tabs
+    # which tab opens first is presentation; storageKey only remembers the reader's choice
+    drop: [defaultIndex, storageKey]
+  - id: nextra/tab
+    tier: T1
+    match: { name: Tab }
+    to: { name: Tab, props: { title: $title } }
+  # Nextra numbers the headings inside <Steps>; the headings and their content stay, in order, with
+  # their anchors, and only the numbering is not drawn
+  - id: nextra/steps
+    tier: T3
+    match: { name: Steps }
+    children: unwrap
+    note: the step numbering is presentation; each step's heading and content are kept
+  # <Bleed> lets content run wider than the column: presentation around content that stays
+  - id: nextra/bleed
+    tier: T3
+    match: { name: Bleed }
+    children: unwrap
+  - id: nextra/cards
+    tier: T2
+    match: { name: Cards }
+    handler: cards-to-columns
+  - id: nextra/card
+    tier: T2
+    match: { name: Cards.Card }
+    handler: to-card
+    drop: [arrow]
+  # a stylesheet a page loads for itself; the platform applies site-wide CSS from documentation.json
+  - id: nextra/page-stylesheet
+    tier: T3
+    match: { name: link, props: { rel: stylesheet } }
+    children: drop

@@ -23,7 +23,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 /** Stages and review commands a host may run. `mcp` itself is not among them. */
-export const RUNNABLE = ['init', 'project', 'fingerprint', 'discover', 'approve', 'acquire', 'inventory', 'plan', 'assets', 'convert', 'nav', 'verify', 'write', 'publish', 'accept', 'release', 'report', 'rebase'] as const;
+export const RUNNABLE = ['init', 'project', 'fingerprint', 'discover', 'exclude', 'approve', 'acquire', 'inventory', 'plan', 'assets', 'convert', 'nav', 'verify', 'write', 'publish', 'accept', 'release', 'report', 'rebase'] as const;
 /** Folders of a workspace a host may read for review. The sealed source, the snapshot and the repository clone are not review material. */
 const READABLE = ['plan', 'report', 'quarantine'];
 const MAX_OUTPUT = 24_000;
@@ -114,7 +114,7 @@ function status(workspace: string): string {
   if (!existsSync(sessionFile)) return `No migration at ${workspace} yet. Start one with migration_run: command "init", args ["--source", "<site URL or folder>", "--clone", "<your clone of the Documentation.AI repository>"] (see migration_guide).`;
   const session = JSON.parse(readFileSync(sessionFile, 'utf8')) as { migrationId?: string; source?: { location?: string; platform?: string }; fidelityMode?: string; target?: { previewUrl?: string; repoRemote?: string; cloneDir?: string }; stages?: Record<string, { status?: string; note?: string }>; approvals?: Record<string, { by?: string; at?: string }> };
   const lines = [`Migration ${session.migrationId ?? ''} of ${session.source?.location ?? 'unknown source'} (${session.source?.platform ?? 'platform not fingerprinted'}, ${session.fidelityMode ?? 'exact'})`];
-  lines.push(`Delivers to: ${session.target?.cloneDir ? `your clone at ${session.target.cloneDir}` : session.target?.repoRemote ?? 'not set (publish through MCP, or pass --clone/--remote at init)'}`);
+  lines.push(`Delivers to: ${session.target?.cloneDir ? `your clone at ${session.target.cloneDir}` : session.target?.repoRemote ?? 'not set yet (publish through MCP, or write --repo <your clone> / --remote <git url> when it is time to deliver)'}`);
   for (const [stage, state] of Object.entries(session.stages ?? {})) lines.push(`  ${state.status === 'done' ? '✔' : state.status === 'failed' ? '✖' : '·'} ${stage}${state.note ? `: ${state.note}` : ''}`);
   for (const gate of ['1', '2', '3', '4']) { const approval = session.approvals?.[gate]; lines.push(`  human gate ${gate}: ${approval?.by ? `approved by ${approval.by}` : 'not approved'}`); }
   if (session.target?.previewUrl) lines.push(`Preview: ${session.target.previewUrl}`);

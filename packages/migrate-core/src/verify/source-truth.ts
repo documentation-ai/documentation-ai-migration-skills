@@ -42,6 +42,8 @@ export interface RawSourcePage {
   html?: string;
   htmlSha256?: string;
   llms?: { title: string; description?: string; mdUrl: string };
+  /** The files and snippets a repository page includes, read from the frozen copy as inventory read them, so both sides include the same. */
+  readers?: Pick<import('../ir/from-markdown.js').MarkdownAdapterOptions, 'resolveFile' | 'resolveSnippet'>;
 }
 
 export interface SourceComparison {
@@ -128,7 +130,7 @@ export function rawSourceIr(page: RawSourcePage, platform: string, profile?: Scr
   // one. Reading the source through the same profile keeps the two sides comparing what the page
   // states about itself; an ogImage the author chose is still on both sides and still compared.
   const seo = page.html && page.url ? seoFrontmatter(extractSeo(page.html, page.url), { url: page.url, title, description }, () => undefined, profile?.generatedOgImage) : {};
-  const doc = markdownToIr(published.body, { platform, file: page.path, pageId: page.pageId, title, frontmatter: { title, ...(description ? { description } : {}), ...seo }, codeMetaStrip: profile?.codeMetaStrip });
+  const doc = markdownToIr(published.body, { platform, file: page.path, pageId: page.pageId, title, frontmatter: { title, ...(description ? { description } : {}), ...seo }, codeMetaStrip: profile?.codeMetaStrip, ...page.readers });
   // convert points site-relative links at their migrated routes or the source site; the source is read the same way
   return links ? retargetDocLinks(doc, siteLinkTarget(links)) : doc;
 }

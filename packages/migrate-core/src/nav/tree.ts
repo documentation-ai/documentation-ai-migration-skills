@@ -4,8 +4,9 @@
  */
 import { attachHelpCenterHub } from './help-center.js';
 import { specOutputPath } from '../openapi/graph.js';
-import { parse as parseYaml, stringify as toYaml } from 'yaml';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { stringify as toYaml } from 'yaml';
+import { readEditedYaml } from '../session/edited-files.js';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { slugify } from '../urls/slugger.js';
 import { DEFAULT_ICON_LIBRARY, loadContract, migrateIcon, type IconLibrary } from '@dai/content-contract';
@@ -60,6 +61,12 @@ export interface TreePage {
   migrate: boolean;
   locale?: string;
   version?: string;
+  /**
+   * The address prefix the source serves this page's version under, when the source states one
+   * (Fern's version `slug`). The URL plan keeps it rather than making a prefix of the version name,
+   * which would put a second prefix in front of the one the old address already carries.
+   */
+  versionPath?: string;
   visibility?: 'public' | 'private';
   status?: 'published' | 'draft' | 'hidden';
   aliases?: string[];
@@ -91,6 +98,8 @@ export type SourceNavigationNode =
       icon?: string; href?: string; expandable?: boolean; description?: string;
       /** A container the source states and hides (mintlify.com/docs hides a whole "Help center" tab): its label, kind and order are the source's own. */
       hidden?: boolean;
+      /** An API reference section the platform fills with endpoint pages from a spec (a Fern `api:` entry): written even with no page of its own, its spec attached by nav. */
+      openapi?: boolean;
     };
 
 export type NavigationContainerKind = 'product' | 'language' | 'version' | 'tab' | 'dropdown' | 'menu' | 'group';
@@ -178,7 +187,7 @@ export function writeTree(workspace: string, tree: Tree): void {
 }
 
 export function readTree(workspace: string): Tree {
-  return parseYaml(readFileSync(join(workspace, 'plan', 'tree.yaml'), 'utf8')) as Tree;
+  return readEditedYaml<Tree>(join(workspace, 'plan', 'tree.yaml'), { keepQuotes: true });
 }
 
 /** Nested groups → navigation for one version/locale slice. Uses `groups` at the root, `pages` inside. */
@@ -411,12 +420,12 @@ function buildSlice(pages: TreePage[], sourceNavigation?: SourceNavigationNode[]
       // The container's own page, which the platform reads from the container's `path`. A container
       // with nothing left beneath it is simply that page.
       const own = node.pageId ? eligible.get(node.pageId) : lifted ? eligible.get(lifted.pageId) : undefined;
-      if (own && !children.length && !node.href) { out.push({ ...pageMetadata(own), ...pageLayout(own), title: node.label, path: own.newPath! }); continue; }
+      if (own && !children.length && !node.href && !node.openapi) { out.push({ ...pageMetadata(own), ...pageLayout(own), title: node.label, path: own.newPath! }); continue; }
       // A container's own page that is bound to an OpenAPI operation is written as the container's
       // first page entry instead of its `path`: the platform reads the operation from a page entry only.
       const ownBound = !!own && bound.has(own.id);
       const kids = ownBound ? [{ ...pageMetadata(own!), ...pageLayout(own!), title: node.label, path: own!.newPath! }, ...children] : children;
-      if (kids.length || node.href) out.push({ [kind]: node.label, ...containerPresentation(node, kind), ...(own && !ownBound ? { path: own.newPath!, ...pageLayout(own) } : {}), ...(kids.length ? collection(kids, kind) : {}) });
+      if (kids.length || node.href || node.openapi) out.push({ [kind]: node.label, ...containerPresentation(node, kind), ...(own && !ownBound ? { path: own.newPath!, ...pageLayout(own) } : {}), ...(kids.length ? collection(kids, kind) : {}) });
       }
       return out;
     };
@@ -578,7 +587,7 @@ export function buildNavigation(pages: TreePage[], defaults: { defaultVersion?: 
 }
 
 /** Attach a group-level `openapi` property to the group at `groupPath` (DAI group-level OpenAPI connection). */
-export function attachGroupOpenapi(nav: { navigation: Record<string, unknown> }, groupPath: string[], spec: string, version?: string, locale?: string): { navigation: Record<string, unknown> } {
+export function attachGroupOpenapi(nav: { navigation: Record<string, unknown> }, groupPath: string[], spec: string, version?: string, locale?: string, hiddenApis: readonly string[] = []): { navigation: Record<string, unknown> } {
   const clone = structuredClone(nav);
   const kinds = ['product', 'language', 'version', 'tab', 'dropdown', 'menu', 'group'];
   const matches: Record<string, unknown>[] = [];
@@ -597,11 +606,13 @@ export function attachGroupOpenapi(nav: { navigation: Record<string, unknown> },
   if (!matches.length) throw new Error(`group path not found in navigation: ${groupPath.join(' / ')}`);
   if (matches.length !== 1) throw new Error(`group path ${groupPath.join(' / ')} resolves to ${matches.length} groups; specify an unambiguous version and locale`);
   matches[0].openapi = spec;
+  // operations the source does not publish ("METHOD /path"), which the platform then makes no page for
+  if (hiddenApis.length) matches[0]['hidden-apis'] = [...hiddenApis];
   return clone;
 }
 
 /** A group-level OpenAPI connection the source adapter recorded (inventory/platform-meta.json `openapi`). */
-export interface GroupOpenapiRef { groupPath: string[]; spec: string; version?: string; locale?: string }
+export interface GroupOpenapiRef { groupPath: string[]; spec: string; version?: string; locale?: string; hiddenApis?: string[] }
 
 export interface DocumentationNavigationMeta {
   /** The migrated site's icons.library; every icon is written for it. Lucide when unset, as before. */
@@ -691,7 +702,7 @@ export function buildDocumentationNavigation(tree: Tree, writtenPaths: ReadonlyS
   if (bindings.size) navigation = { navigation: bindPageOperations(navigation.navigation, bindings) };
   for (const ref of platformMeta.openapi ?? []) {
     try {
-      navigation = attachGroupOpenapi(navigation, ref.groupPath, specOutputPath(ref.spec), ref.version, ref.locale);
+      navigation = attachGroupOpenapi(navigation, ref.groupPath, specOutputPath(ref.spec), ref.version, ref.locale, ref.hiddenApis);
     } catch (error) {
       throw new Error(`openapi ${ref.spec}: ${(error as Error).message}; no written page is placed under that group, so remove the entry from inventory/platform-meta.json or migrate the group's pages`);
     }

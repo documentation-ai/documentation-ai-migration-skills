@@ -193,6 +193,9 @@ function flareTocList(nodes: readonly DiscoveredNavigationNode[], idBase: string
   return { id: `${idBase}:list:${depth}`, type: 'list', ordered: false, children: items };
 }
 
+/** Each Fern callout (by component or `intent`) as the Callout kind that draws it: launch has no kind of its own and reads as info. */
+const FERN_CALLOUT_KIND: Record<string, string> = { note: 'info', info: 'info', launch: 'info', tip: 'tip', warning: 'alert', error: 'danger', check: 'success', success: 'success' };
+
 /** Restructure handlers (T3). */
 const HANDLERS: Record<string, RestructureHandler> = {
   /**
@@ -454,6 +457,32 @@ const HANDLERS: Record<string, RestructureHandler> = {
     const titleType = first.depth <= 2 ? 'h2' : 'h3';
     const lossy = [`leading heading "${title}" became the Step title`, ...(first.depth > 3 ? [`heading level ${first.depth} rendered as h3`] : [])];
     return { blocks: [{ id: node.id, type: 'dai', name: 'Step', props: { title, titleType }, children: rest, rule: rule.id, anchorFrom: first.id }], lossy };
+  } },
+  /**
+   * A Fern callout: `<Note>`, `<Warning>`… or `<Callout intent="…">`, as the Callout kind that draws
+   * it. A title is the callout's first line, in bold, which is how the reader saw it and what the
+   * fidelity comparison reads as the same title.
+   */
+  'fern-callout': { reads: ['intent', 'title'], run: (node, rule) => {
+    const named = String(node.name === 'Callout' ? node.props.intent ?? 'info' : node.name).toLowerCase();
+    const kind = FERN_CALLOUT_KIND[named] ?? 'info';
+    const title = typeof node.props.title === 'string' && node.props.title.trim() ? node.props.title.trim() : undefined;
+    const children: Block[] = title ? [{ id: `${node.id}:title`, type: 'paragraph', children: [{ id: `${node.id}:title:b`, type: 'strong', children: [{ id: `${node.id}:title:t`, type: 'text', value: title }] }] }, ...node.children] : node.children;
+    return { blocks: [{ id: node.id, type: 'dai', name: 'Callout', props: { kind }, children, rule: rule.id }], lossy: FERN_CALLOUT_KIND[named] ? [] : [`callout intent "${named}" has no kind of its own; drawn as info`] };
+  } },
+  /**
+   * An admonition (Docusaurus `:::tip[Title]`, a themed aside) as a Callout: its kind through the
+   * contract's value map, and a title as the callout's first line in bold, which is how the reader
+   * saw it. A title written as a prop the Callout does not have was otherwise lost.
+   */
+  'admonition-callout': { reads: ['kind', 'type', 'title'], run: (node, rule) => {
+    // `kind` for an admonition, `type` for a Nextra callout (whose `default` is the plain one)
+    const stated = String(node.props.kind ?? node.props.type ?? 'info').toLowerCase().replace(/^default$/, 'info');
+    const kinds = loadContract().valueMaps.Callout?.kind ?? {};
+    const kind = kinds[stated] ?? (['info', 'alert', 'success', 'danger', 'tip'].includes(stated) ? stated : 'info');
+    const title = typeof node.props.title === 'string' && node.props.title.trim() ? node.props.title.trim() : undefined;
+    const children: Block[] = title ? [{ id: `${node.id}:title`, type: 'paragraph', children: [{ id: `${node.id}:title:b`, type: 'strong', children: [{ id: `${node.id}:title:t`, type: 'text', value: title }] }] }, ...node.children] : node.children;
+    return { blocks: [{ id: node.id, type: 'dai', name: 'Callout', props: { kind }, children, rule: rule.id }], lossy: kind === stated || kinds[stated] ? [] : [`admonition kind "${stated}" has no kind of its own; drawn as info`] };
   } },
   /** Embed: an Iframe when the host may be framed, otherwise the link a reader of the source followed. */
   'embed-to-iframe-or-link': { reads: ['src', 'url', 'title'], run: (node, rule, ctx) => {

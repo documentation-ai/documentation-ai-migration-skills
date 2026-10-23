@@ -5,6 +5,7 @@
  * cannot grow a flag without it appearing here.
  */
 import { parseArgs } from 'node:util';
+import { rejoinCurlyQuotedArgs } from '../session/edited-files.js';
 
 export const HELP = `documentation-ai-migrate <command> [options]
 
@@ -25,7 +26,12 @@ Commands (run in order; the workflow has exactly four standard human gates):
                --exclude-help-system (repeatable) records that a second help system published on the host is out of
                scope, with --by naming who decided; its pages are excluded with attribution instead of being placed by
                a sidebar that does not name them. The seed's own help system can never be excluded.
-  approve      --gate <1-4> --by "<who>" [--note "<why>"]           records a human gate against the state it approves
+  approve      --gate <1-4> --by "<who>" [--note "<why>"] [--navigation-reviewed]   records a human gate against the state it approves
+               --navigation-reviewed (gate 1): the source states its sidebar in code this tool does not run (a Docusaurus
+               sidebars module, Nextra _meta modules), and the person approving has reviewed plan/tree.yaml as the navigation
+  exclude      --path "<file or glob>" [--path …] --reason "<why>" --by "<who>"
+               leaves published pages out of the migration (a blog, standalone pages), recorded in plan/scope-decisions.yaml
+               with who decided and why; paths are the source's own (blog/**, src/pages/*.mdx). Decision 1 is then asked again
   rebase       --reason "<why>"                                     re-pins the migrator build after a fix, keeps the frozen source
                and its acquisition pin, and stales every derivation; follow it with "discover --offline"
   acquire      [--fetcher local|firecrawl] [--zero-data-retention] [--profile p] [--urls file] [--proxy url] [--headers-file json] [--cookies-file file] → source-cache/acquired/
@@ -42,9 +48,15 @@ Commands (run in order; the workflow has exactly four standard human gates):
                publishes them in, because the renderer serves only routes the navigation names. It states a
                structure the source's sidebar does not, so it records who decided and marks the navigation
                operator-reviewed; gate 1 must then be approved again for the tree it produced.
-  write        [--repo <dir>] [--remote <url>] [--push] [--allow-lossy] [--no-wait] [--preview-timeout min] [--revision "<why>"] → refs/heads/migration/<session>; with --push waits for the preview deployment and records its URL
+  write        [--repo <dir>] [--remote <url>] [--allowed-orgs a,b] [--push] [--allow-lossy] [--no-wait] [--preview-timeout min] [--revision "<why>"] [--replace-repo-contents] → refs/heads/migration/<session>; with --push waits for the preview deployment and records its URL
+               --repo or --remote may name a repository init did not (a migration started in the MCP flow): the write is then
+               scoped to that repository's organisation, as init would have scoped it; --allowed-orgs adds organisations
                --revision takes a new migration id for a build that supersedes the last push, recording why;
-               a branch already pushed is evidence and is never rewritten
+               a branch already pushed is evidence and is never rewritten. When the branch name is already taken (an earlier
+               write, or the working version publish made), the build becomes a revision of its own automatically
+               the branch tracks nothing until it is pushed, so a plain "git push" never sends it to the default branch
+               --replace-repo-contents lets the branch replace a repository that holds code (package.json, source files);
+               without it write refuses, because the branch holds the documentation alone and would delete that code
                --allow-lossy (permissive sessions) records the unproven exactness gates as waived in report/lossy-push.json
                a failing gate never withholds the push, in any mode: it is recorded in report/pushed-with-findings.json and blocks release
   project      [--project "<name or id>"]
@@ -77,15 +89,18 @@ Commands (run in order; the workflow has exactly four standard human gates):
                --no-pdf writes the HTML only (no browser needed)
                --summary writes the reader's version: verdict, numbers, decisions and checks, without the appendix, addresses or technical detail
 
-  mcp                                                                serves the migrator to any MCP host over stdio (Claude Desktop, Cursor, VS Code, Codex…):
-               tools migration_guide, migration_status, migration_run, migration_read. Add it to the host as the command
-               "npx documentation-ai-migrate mcp" run from this repository.
+  mcp          [--print-config claude-desktop|cursor|windsurf|vscode|codex]
+               serves the migrator to any MCP host over stdio (Claude Desktop, Cursor, VS Code, Codex…):
+               tools migration_guide, migration_status, migration_run, migration_read. --print-config prints the block
+               that host's configuration needs, with this machine's paths filled in; copy it from the terminal.
 
 Every command except init and mcp takes --workspace <dir> (or MIGRATION_WORKSPACE).`;
 
 /** The parsed command line. The return type is inferred so each flag keeps the type its definition gives it. */
 export function parseCommandLine() {
   return parseArgs({
+  // a value typed in curly quotes reaches the command as the one value it was, not its first word
+  args: rejoinCurlyQuotedArgs(process.argv.slice(2)),
   allowPositionals: true,
   options: {
     workspace: { type: 'string', default: process.env.MIGRATION_WORKSPACE },
@@ -118,6 +133,9 @@ export function parseCommandLine() {
     renderer: { type: 'string' }, responsive: { type: 'string' }, route: { type: 'string', multiple: true },
     'keep-external': { type: 'boolean', default: false },
     branch: { type: 'string' }, 'remove-old-pages': { type: 'boolean', default: false }, project: { type: 'string' },
+    path: { type: 'string', multiple: true },
+    'replace-repo-contents': { type: 'boolean', default: false }, 'navigation-reviewed': { type: 'boolean', default: false },
+    'print-config': { type: 'string' },
     'log-originals': { type: 'boolean', default: false },
     help: { type: 'boolean', default: false },
   },

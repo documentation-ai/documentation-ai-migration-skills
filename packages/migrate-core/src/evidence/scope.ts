@@ -7,9 +7,10 @@
  * frozen source manifest, never against the tree, so deleting a page from the tree
  * and the navigation together cannot make it disappear.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseYaml, stringify as toYaml } from 'yaml';
+import { stringify as toYaml } from 'yaml';
+import { readEditedYaml } from '../session/edited-files.js';
 import type { SourceManifest, SourceManifestPage } from './manifest.js';
 
 export interface ScopeExclusion {
@@ -154,7 +155,7 @@ export function ensureScopeDecisionsFile(workspace: string): void {
 export function readScopeDecisions(workspace: string): ScopeDecisions {
   const path = scopeDecisionsPath(workspace);
   if (!existsSync(path)) return { excluded: [], substituted: [], assets: [], helpSystems: [], differences: [] };
-  const parsed = parseYaml(readFileSync(path, 'utf8')) as { excluded?: unknown; substituted?: unknown; helpSystems?: unknown } | null;
+  const parsed = readEditedYaml<{ excluded?: unknown; substituted?: unknown; helpSystems?: unknown } | null>(path);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.excluded)) throw new Error(`${path}: expected an object with an excluded list`);
   const entries = parsed.excluded;
   if (!Array.isArray(entries)) throw new Error(`${path}: excluded must be a list`);
@@ -344,7 +345,8 @@ export function recordScopeExclusions(workspace: string, entries: readonly Scope
   const known = new Set(existing.helpSystems.map((entry) => entry.root));
   const newDecisions = decisions.filter((entry) => !known.has(entry.root));
   if (!added.length && !newDecisions.length) return 0;
-  const record = { excluded: [...existing.excluded, ...added], substituted: existing.substituted, helpSystems: [...existing.helpSystems, ...newDecisions], differences: existing.differences };
+  // every other decision in the file is carried as it stands: dropping one would undo a person's decision
+  const record = { excluded: [...existing.excluded, ...added], substituted: existing.substituted, assets: existing.assets, helpSystems: [...existing.helpSystems, ...newDecisions], differences: existing.differences };
   writeFileSync(scopeDecisionsPath(workspace), `${TEMPLATE.slice(0, TEMPLATE.indexOf('excluded: []'))}${toYaml(record)}`, { mode: 0o600 });
   return added.length;
 }

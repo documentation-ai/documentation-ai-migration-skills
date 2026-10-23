@@ -134,7 +134,7 @@ function sameAddress(url: string): string {
  * styling change, never a content change. ParamField's `type` is the one content-bearing `type`; its rule copies it and the
  * serialised-output gate proves it survives, so the comparator need not.
  */
-const VISUAL_PROPS = new Set(['arrow', 'class', 'className', 'color', 'columns', 'cols', 'defaultOpen', 'expanded', 'height', 'horizontal', 'icon', 'iconType', 'kind', 'open', 'style', 'theme', 'titleType', 'type', 'width']);
+const VISUAL_PROPS = new Set(['arrow', 'class', 'className', 'color', 'columns', 'cols', 'defaultOpen', 'expanded', 'height', 'horizontal', 'icon', 'iconType', 'intent', 'kind', 'open', 'style', 'theme', 'titleType', 'type', 'width']);
 /**
  * Attributes that grant an embed a capability rather than state content: what an iframe may do, and
  * what it may be trusted with. The sanitizer strips every one of them by policy before any rule
@@ -154,8 +154,8 @@ const DATA_ATTRIBUTE = /^data-/;
  */
 const FRAME_COMPONENTS = new Set(['Frame', 'div']);
 
-/** Wrappers that carry a published heading anchor and nothing else. Named, for the same reason. */
-const ANCHOR_WRAPPERS = new Set(['div']);
+/** Wrappers that carry a published heading anchor and nothing else (`<span id="x" />` in Nextra's own docs). Named, for the same reason. */
+const ANCHOR_WRAPPERS = new Set(['div', 'span']);
 
 /** A heading written as raw HTML. The level is in the name, so the shape can state it. */
 const HTML_HEADINGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);

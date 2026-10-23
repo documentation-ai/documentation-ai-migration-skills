@@ -32,6 +32,29 @@ const published = (manifest: ReturnType<typeof manifestOf>): string[] => manifes
 const unpublished = (manifest: ReturnType<typeof manifestOf>): string[] => manifest.pages.filter((page) => !page.published).map((page) => page.location).sort();
 
 describe('what each platform actually publishes', () => {
+  it('counts the pages Fern version files and changelog folders name, relative to the file naming them', () => {
+    const manifest = manifestOf('fern', (root) => {
+      write(root, 'fern/docs.yml', ['versions:', '  - display-name: v2', '    path: ./versions/v2.yml', 'navigation:', '  - changelog: ./changelog', ''].join('\n'));
+      write(root, 'fern/versions/v2.yml', ['navigation:', '  - page: Start', '    path: ../pages/start.mdx', ''].join('\n'));
+      write(root, 'fern/pages/start.mdx', '---\ntitle: Start\n---\n\nGo.\n');
+      write(root, 'fern/changelog/2024-01-05.mdx', 'New.\n');
+      write(root, 'fern/pages/scratch.mdx', 'Not referenced.\n');
+    });
+    expect(published(manifest)).toEqual(['fern/changelog/2024-01-05.mdx', 'fern/pages/start.mdx']);
+    expect(unpublished(manifest)).toEqual(['fern/pages/scratch.mdx']);
+  });
+
+  it('does not count a README beside a Docusaurus site as one of its pages', () => {
+    const manifest = manifestOf('docusaurus', (root) => {
+      write(root, 'docusaurus.config.ts', 'export default {};\n');
+      write(root, 'README.md', '# Website\n\nHow to build it.\n');
+      write(root, 'docs/intro.md', '---\ntitle: Introduction\n---\n\nPublished.\n');
+      write(root, 'blog/2024-01-01-hello.md', '---\ntitle: Hello\n---\n\nA post.\n');
+    });
+    expect(published(manifest)).toEqual(['blog/2024-01-01-hello.md', 'docs/intro.md']);
+    expect(unpublished(manifest)).toEqual(['README.md']);
+  });
+
   it('does not count a Docusaurus draft or unlisted page as published', () => {
     const manifest = manifestOf('docusaurus', (root) => {
       write(root, 'docusaurus.config.ts', 'export default {};\n');

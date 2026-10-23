@@ -9,9 +9,9 @@
  * table gates compare against the unexcluded snapshot, so excluding a block that
  * carries text fails them, exactly as a component exclusion would.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
+import { readEditedYaml } from '../session/edited-files.js';
 import type { Block, DocIR } from './types.js';
 import { isBlockWithChildren, walkBlocks } from './types.js';
 import type { Ledger } from '../ledger/dispositions.js';
@@ -25,7 +25,7 @@ export function blockExclusionsPath(workspace: string): string {
 export function readBlockExclusions(workspace: string): BlockExclusion[] {
   const p = blockExclusionsPath(workspace);
   if (!existsSync(p)) return [];
-  const list = (parseYaml(readFileSync(p, 'utf8')) as { exclusions?: BlockExclusion[] } | null)?.exclusions ?? [];
+  const list = readEditedYaml<{ exclusions?: BlockExclusion[] } | null>(p)?.exclusions ?? [];
   for (const e of list) {
     if (!e?.pageId || !e.nodeId || !e.reason || !e.reviewer) throw new Error(`block exclusion needs pageId, nodeId, reason and reviewer: ${JSON.stringify(e)}`);
   }

@@ -6,8 +6,8 @@
  * Every entry records where its URL is used (page media or site chrome), so a
  * stage that stops on an unhosted asset can name the page that needs it.
  */
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, extname, basename } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { join, extname, basename, posix, resolve, sep } from 'node:path';
 import sanitizeHtml from 'sanitize-html';
 import type { DocIR, Block, Inline } from '../ir/types.js';
 import { htmlMediaReferences, rewriteHtmlMedia } from './html-media.js';
@@ -64,7 +64,16 @@ export interface AssetManifest {
    * the report says so, and says what to do before the old site is switched off.
    */
   keptExternal?: { by: string; at: string };
+  /** Files waiting to be dropped on the platform's upload page, and the link to drop them on (see `ingestAssets`). */
+  uploadRequest?: UploadRequest;
 }
+
+/**
+ * A request for the person migrating to drop files on their project's upload page: the files a
+ * sign-in cannot import because no public address serves them (a repository's own images, an SVG
+ * cleaned of scripts). They wait in `folder` under the names they are found by afterwards.
+ */
+export interface UploadRequest { url: string; expiresAt: string; requestedAt: string; folder: string; files: string[] }
 
 export function readManifest(workspace: string): AssetManifest {
   const p = join(workspace, 'plan', 'assets.json');
@@ -99,14 +108,62 @@ function componentAssetKind(componentName: string, prop: string, value?: unknown
  * reading that page does: relative to the page's own URL. Recording the reference as written would
  * make the same file reached from two directory depths look like two assets, leave a provider with
  * nothing it can fetch, and emit a path that resolves against the migrated site instead of the
- * source. A repository or export source has no such base and is left exactly as authored.
+ * source. A page read from a repository or export names its files by path, which `repoAssetKey`
+ * resolves against the page's own file.
  */
 export function resolveAssetUrl(url: string, source: string | undefined): string {
   const proxied = gitbookImageProxyTarget(url);
   if (proxied) return proxied;
-  if (!url || !source || !/^https?:\/\//i.test(source)) return url;
+  if (!url || !source) return url;
+  if (!/^https?:\/\//i.test(source)) return repoAssetKey(url, source) ?? url;
   if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(url)) return url;
   try { return new URL(url, source).toString(); } catch { return url; }
+}
+
+/**
+ * A file a repository page names by path, as `repo:<path from the repository root>`.
+ *
+ * Recorded as written, `./diagram.png` in two folders was one asset and `/images/x.png` was never
+ * looked for: every repository image stayed a path the new site does not serve. A relative path is
+ * resolved against the page's own file. A path from the root (`/images/x.png`) keeps its leading
+ * slash, because where the root is depends on the platform (`repoAssetRoots`).
+ */
+export function repoAssetKey(url: string, source: string): string | undefined {
+  if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(url)) return undefined;
+  // a page source that is not a path inside the repository has nothing to resolve against
+  const page = source.replace(/\\/g, '/');
+  if (page.startsWith('/') || /^[a-z]:\//i.test(page) || page.startsWith('../')) return undefined;
+  let path = url.split(/[?#]/)[0].replace(/\\/g, '/');
+  try { path = decodeURI(path); } catch { /* keep it as written */ }
+  if (!path.trim()) return undefined;
+  return `repo:${path.startsWith('/') ? posix.normalize(path) : posix.normalize(posix.join(posix.dirname(page), path))}`;
+}
+
+/** Where a root path (`/images/x.png`) is served from, per platform: the folder the site's files live in, then the repository root. */
+export function repoAssetRoots(platform: string): string[] {
+  switch (platform) {
+    case 'fern': return ['fern', ''];
+    case 'docusaurus': return ['static', ''];
+    case 'nextra': return ['public', ''];
+    case 'mintlify': case 'gitbook': case 'readme': return [''];
+    default: return ['', 'public', 'static'];
+  }
+}
+
+/** The file behind a `repo:` key in the repository at `root`, or undefined when the repository has no such file. */
+export function repoAssetResolver(root: string, roots: readonly string[]): (url: string) => string | undefined {
+  const base = resolve(root);
+  return (url) => {
+    if (!url.startsWith('repo:')) return undefined;
+    const path = url.slice('repo:'.length);
+    const candidates = path.startsWith('/') ? roots.map((folder) => join(base, folder, path)) : [join(base, path)];
+    for (const candidate of candidates) {
+      const file = resolve(candidate);
+      if (!file.startsWith(base + sep)) continue; // never outside the repository
+      try { if (statSync(file).isFile()) return file; } catch { /* not this one */ }
+    }
+    return undefined;
+  };
 }
 
 /**
@@ -186,31 +243,69 @@ function assetMediaType(contentType: string | undefined, ext: string, url: strin
   throw new Error(`unsupported asset type ${declared || `unknown (${ext === '.bin' ? 'no media extension' : ext})`} at ${url}`);
 }
 
-const SVG_TAGS = ['svg', 'g', 'defs', 'symbol', 'use', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'title', 'desc', 'clipPath', 'mask', 'pattern', 'linearGradient', 'radialGradient', 'stop', 'filter', 'feGaussianBlur', 'feOffset', 'feColorMatrix', 'feBlend', 'feMerge', 'feMergeNode'];
-const SVG_ATTRS = ['id', 'class', 'xmlns', 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'd', 'points', 'fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'opacity', 'transform', 'preserveAspectRatio', 'role', 'aria-label', 'aria-labelledby', 'focusable', 'clip-path', 'mask', 'offset', 'stop-color', 'stop-opacity', 'gradientUnits', 'gradientTransform', 'patternUnits', 'filter', 'href', 'xlink:href'];
+const SVG_TAGS = ['svg', 'g', 'defs', 'symbol', 'use', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'textPath', 'title', 'desc', 'clipPath', 'mask', 'pattern', 'marker', 'linearGradient', 'radialGradient', 'stop', 'style',
+  'filter', 'feGaussianBlur', 'feOffset', 'feColorMatrix', 'feBlend', 'feMerge', 'feMergeNode', 'feFlood', 'feComposite', 'feMorphology', 'feDropShadow', 'feComponentTransfer', 'feFuncR', 'feFuncG', 'feFuncB', 'feFuncA', 'feTurbulence', 'feDisplacementMap', 'feTile'];
+/** How a shape, its text and its effects look: drawing it as the author did needs every one of these. */
+const SVG_PRESENTATION = ['fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-miterlimit', 'opacity', 'color', 'display', 'visibility', 'overflow',
+  'clip-path', 'clip-rule', 'mask', 'filter', 'stop-color', 'stop-opacity', 'flood-color', 'flood-opacity', 'lighting-color', 'color-interpolation-filters', 'paint-order', 'vector-effect', 'shape-rendering', 'text-rendering', 'image-rendering', 'mix-blend-mode', 'isolation',
+  'font', 'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant', 'font-stretch', 'text-anchor', 'text-decoration', 'dominant-baseline', 'alignment-baseline', 'baseline-shift', 'letter-spacing', 'word-spacing', 'white-space', 'writing-mode', 'direction',
+  'marker-start', 'marker-mid', 'marker-end', 'transform', 'transform-origin', 'transform-box'];
+const SVG_ATTRS = ['id', 'class', 'xmlns', 'xmlns:xlink', 'version', 'xml:space', 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'fx', 'fy', 'fr', 'd', 'points', 'pathLength', 'dx', 'dy', 'rotate', 'textLength', 'lengthAdjust', 'startOffset',
+  ...SVG_PRESENTATION, 'preserveAspectRatio', 'role', 'aria-label', 'aria-labelledby', 'aria-hidden', 'focusable', 'offset', 'gradientUnits', 'gradientTransform', 'spreadMethod', 'patternUnits', 'patternContentUnits', 'patternTransform',
+  'maskUnits', 'maskContentUnits', 'clipPathUnits', 'filterUnits', 'primitiveUnits', 'markerWidth', 'markerHeight', 'markerUnits', 'refX', 'refY', 'orient',
+  'stdDeviation', 'in', 'in2', 'result', 'values', 'type', 'mode', 'operator', 'k1', 'k2', 'k3', 'k4', 'radius', 'scale', 'xChannelSelector', 'yChannelSelector', 'baseFrequency', 'numOctaves', 'seed', 'stitchTiles', 'tableValues', 'slope', 'intercept', 'amplitude', 'exponent',
+  'style', 'href', 'xlink:href'];
+const PRESENTATION_PROPERTIES = new Set(SVG_PRESENTATION);
 
-/** Strip executable SVG content before it can be copied to a public origin. */
+/** A `url(...)` that reaches outside the drawing, or CSS that runs or loads something; a `url(#id)` is the drawing's own gradient, clip or marker. */
+const UNSAFE_CSS = /url\(\s*['"]?\s*(?!#)|@import|expression\s*\(|javascript:|behaviou?r\s*:|-moz-binding|<\/?/i;
+
+/** A `style` attribute with only the declarations that say how the shape looks, each free of anything that loads or runs. */
+function safeStyleAttribute(style: string): string {
+  return style.split(';').map((declaration) => declaration.trim()).filter((declaration) => {
+    const colon = declaration.indexOf(':');
+    if (colon < 1) return false;
+    const property = declaration.slice(0, colon).trim().toLowerCase();
+    return PRESENTATION_PROPERTIES.has(property) && !UNSAFE_CSS.test(declaration.slice(colon + 1));
+  }).join(';');
+}
+
+/** A `<style>` sheet with every rule that loads or runs something removed (Illustrator and Figma colour shapes through classes). */
+function safeStyleSheet(css: string): string {
+  return css.replace(/<!\[CDATA\[|\]\]>/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/@import[^;]*;?/gi, '').split('}').map((rule) => (UNSAFE_CSS.test(rule) ? '' : rule)).filter((rule) => rule.trim()).map((rule) => `${rule}}`).join('');
+}
+
+/** A sheet's text is passed through as written, so it is made safe before parsing, and any sheet that still is not is dropped after. */
+const STYLE_ELEMENT = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
+
+/** Strip executable SVG content before it can be copied to a public origin, keeping how the drawing looks. */
 export function sanitizeSvgBytes(input: Buffer): Buffer {
-  const source = input.toString('utf8');
-  if (/<!DOCTYPE|<!ENTITY/i.test(source)) throw new Error('SVG with DOCTYPE or ENTITY is refused');
+  const raw = input.toString('utf8');
+  if (/<!DOCTYPE|<!ENTITY/i.test(raw)) throw new Error('SVG with DOCTYPE or ENTITY is refused');
+  const source = raw.replace(STYLE_ELEMENT, (_whole, css: string) => { const sheet = safeStyleSheet(css); return sheet ? `<style>${sheet}</style>` : ''; });
   const clean = sanitizeHtml(source, {
     allowedTags: SVG_TAGS,
     allowedAttributes: { '*': SVG_ATTRS },
     allowedSchemes: ['data'],
     allowProtocolRelative: false,
+    // a <style> sheet is kept only as safeStyleSheet left it
+    allowVulnerableTags: true,
     parser: { lowerCaseTags: false, lowerCaseAttributeNames: false },
     transformTags: {
       '*': (tagName, attribs) => {
         const safe: Record<string, string> = {};
         for (const [key, value] of Object.entries(attribs)) {
-          if (/^on/i.test(key) || key.toLowerCase() === 'style') continue;
+          if (/^on/i.test(key)) continue;
           if ((key === 'href' || key === 'xlink:href') && !value.startsWith('#') && !/^data:image\/(?:png|gif|jpe?g|webp);base64,/i.test(value)) continue;
+          if (key.toLowerCase() === 'style') { const kept = safeStyleAttribute(value); if (kept) safe[key] = kept; continue; }
+          // fill="url(https://…)" would fetch from elsewhere each time the picture is drawn
+          if (key !== 'href' && key !== 'xlink:href' && UNSAFE_CSS.test(value)) continue;
           safe[key] = value;
         }
         return { tagName, attribs: safe };
       },
     },
-  }).trim();
+  }).replace(STYLE_ELEMENT, (whole, css: string) => (UNSAFE_CSS.test(css) ? '' : whole)).trim();
   if (!/^<svg(?:\s|>)/i.test(clean)) throw new Error('asset is not a valid standalone SVG');
   return Buffer.from(clean + '\n', 'utf8');
 }
@@ -258,6 +353,8 @@ export async function collectAssets(docs: DocIR[], workspace: string, opts: Coll
         if (page.status !== 200) throw new Error(`HTTP ${page.status}`);
         buf = page.bodyBase64 ? Buffer.from(page.bodyBase64, 'base64') : Buffer.from(page.body, 'utf8'); contentType = page.contentType || undefined;
       }
+      // a repository file that is not there is a page's broken image, not one served from somewhere else
+      if (!buf && url.startsWith('repo:')) { m.byUrl[url] = url; m.entries[url] = { hash: url, sourceUrls: [url], references, status: 'failed', altMissing, error: `the repository has no file at ${url.slice('repo:'.length)}${url.startsWith('repo:/') ? ' (looked in the folder the site is built from and the repository root)' : ''}` }; continue; }
       if (!buf) { m.byUrl[url] = url; m.entries[url] = { hash: url, sourceUrls: [url], references, status: 'kept-external', altMissing, error: 'no local file and no fetcher' }; continue; }
       const candidateExt = extname(url.split('?')[0]);
       const ext = /^\.[A-Za-z0-9]{1,10}$/.test(candidateExt) ? candidateExt.toLowerCase() : '.bin';
@@ -373,8 +470,13 @@ export function rewriteAssetRefs(doc: DocIR, m: AssetManifest): DocIR {
     ? finalUrlFor(m, resolveAssetUrl(doc.frontmatter.ogImage, doc.source))
     : undefined;
   // The same resolution the manifest recorded, so a reference finds its entry and an asset that
-  // kept its source URL is emitted as that URL rather than as a path into the migrated site.
-  const final = (url: string): string => finalUrlFor(m, resolveAssetUrl(url, doc.source));
+  // kept its source URL is emitted as that URL rather than as a path into the migrated site. A
+  // repository file nobody hosted keeps the path its page wrote, never the manifest's key for it.
+  const final = (url: string): string => {
+    const key = resolveAssetUrl(url, doc.source);
+    const hosted = finalUrlFor(m, key);
+    return hosted === key && key.startsWith('repo:') ? url : hosted;
+  };
   return {
     ...doc,
     ...(ogImage ? { frontmatter: { ...doc.frontmatter, ogImage } } : {}),
