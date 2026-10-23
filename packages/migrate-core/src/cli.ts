@@ -105,8 +105,8 @@ import { runGates, canonicalHash, gateSatisfied, previewPushBlockers, releaseBlo
 import { loadRawSourcePages, rawSourceIr, type RawSourcePage } from './verify/source-truth.js';
 import { fetchRenderer, findChrome, routeUrl, runBrowserContentGate, runBrowserFragmentGate, type BrowserAnchor, type ExpectedNavigationEntry } from './verify/browser.js';
 import { acceptPreviewRoutes, readPreviewAcceptances } from './verify/preview-acceptances.js';
-import { DEFAULT_MCP_URL, McpClient } from './publish/mcp-client.js';
-import { chooseProject, signInWithBrowser, writableProjects } from './publish/mcp-oauth.js';
+import { DEFAULT_MCP_URL, McpClient, McpCredentialRefused } from './publish/mcp-client.js';
+import { chooseProject, forgetSignIn, signInFolder, SignInFailed, withSignIn, writableProjects } from './publish/mcp-oauth.js';
 import { serveStdio } from './mcp-server.js';
 import { publishThroughMcp, type PublishProgress, type PublishResult } from './publish/publish.js';
 import { cachedRenderer, openChromeSession, EXPAND_INTERACTIVE } from './verify/chrome-session.js';
@@ -114,7 +114,7 @@ import { runResponsiveGate, sampleRoutes } from './verify/responsive.js';
 import { authoredContentSnapshot, fidelityEqual, firstFidelityDifference, renderedDocSnapshot } from './verify/fidelity.js';
 import { unconvertedFidelityRecord, writeFidelityRecords, type FidelityRecord } from './verify/fidelity-records.js';
 import { allowedOrgKey, MigrationBranchExistsError, originRemote, remoteOrg, writeMigrationBranch } from './write/migration-branch.js';
-import { readEditedYaml } from './session/edited-files.js';
+import { PLAN_YAML, readEditedYaml } from './session/edited-files.js';
 import { writeGates, writeReviewQueue, writeSummary, writePlatformGaps, readDecisions, writeConnectionSummary, type RunProvenance } from './report/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -133,6 +133,25 @@ function ws(): string {
 }
 function fail(msg: string): never { console.error(`✖ ${redact(msg)}`); process.exit(1); }
 function ok(msg: string) { console.log(`✔ ${msg}`); }
+
+/**
+ * The Authoring MCP server, reached with the project key when one is set, otherwise with the
+ * person's sign-in, which one migration asks for once (`withSignIn`).
+ */
+async function connectToAuthoringServer(mcpUrl: string, apiKey?: string): Promise<McpClient> {
+  const connected = async (token: string): Promise<McpClient> => {
+    const client = new McpClient({ url: mcpUrl, token, clientVersion: CORE_VERSION });
+    await client.connect();
+    return client;
+  };
+  if (apiKey) return connected(apiKey);
+  try {
+    return await withSignIn({ mcpUrl, log: (message) => console.log(`  · ${message}`) }, connected, (error) => error instanceof McpCredentialRefused);
+  } catch (error) {
+    if (error instanceof SignInFailed) fail(`could not sign in to Documentation.AI: ${error.message}`);
+    throw error;
+  }
+}
 function humanGate(number: 1 | 2 | 3 | 4, name: string, review: string): void {
   console.log(`⏸ HUMAN GATE ${number}/4 — ${name}: ${review}`);
   console.log(`   record the decision with: documentation-ai-migrate approve --gate ${number} --by "<who approved it>"`);
@@ -196,6 +215,7 @@ async function firecrawlOptions(workspace: string, session: Session, targetUrl: 
 async function captureOpenapiFor(workspace: string, session: Session, tree: Tree): Promise<OpenapiCapture> {
   const capture = await captureOpenapi({ workspace, session, tree, supplied: v.openapi ?? [], concurrency: Number(v.concurrency), fetcher: new Fetcher(networkOptions(workspace, session)) });
   if (capture.documents) ok(`${capture.documents} OpenAPI documents captured without flattening; ${capture.operations} operations indexed`);
+  if (capture.recursiveSchemas.length) console.log(`  · ${capture.recursiveSchemas.join(', ')} contain${capture.recursiveSchemas.length === 1 ? 's' : ''} itself, which Documentation.AI cannot build API pages from yet: in the copy it publishes, the repeat is shown as a plain object (the source spec is unchanged)`);
   return capture;
 }
 
@@ -1206,7 +1226,7 @@ async function main() {
         };
         return entry;
       });
-      writeFileSync(planPath, toYaml({ components }), { mode: 0o600 });
+      writeFileSync(planPath, toYaml({ components }, PLAN_YAML), { mode: 0o600 });
       const urlOptions = { mode: (v.mode as any) ?? 'preserve', stripPrefix: v['strip-prefix'], case: (v.case as any) ?? 'preserve' } as const;
       const existingUrlPlan = readUrlPlan(workspace);
       // An existing plan is the operator's and is kept; a page the tree gained since it was written
@@ -1230,7 +1250,7 @@ async function main() {
       writeJson(join(workspace, 'inventory', 'site-branding.json'), branding ?? null);
       if (!existsSync(sitePlanPath(workspace))) writeSitePlan(workspace, proposeSitePlan(branding, { template: s.target.template, iconLibrary: sourceIconLibrary(tree.platform) }));
       const assetsPlan = { provider: v.provider ?? s.target.assetProvider ?? 'local', generateAlt: false, iframeHosts: ['www.youtube.com', 'youtube.com', 'youtu.be', 'player.vimeo.com', 'www.loom.com'] };
-      const ap = join(workspace, 'plan', 'assets.yaml'); if (!existsSync(ap)) writeFileSync(ap, toYaml(assetsPlan), { mode: 0o600 });
+      const ap = join(workspace, 'plan', 'assets.yaml'); if (!existsSync(ap)) writeFileSync(ap, toYaml(assetsPlan, PLAN_YAML), { mode: 0o600 });
       // plans are pinned again by convert; a plan edit invalidates any verified output
       s.hashes.componentPlan = fileHash(planPath); s.hashes.urlPlan = fileHash(join(workspace, 'plan', 'urls.yaml')); s.hashes.canonicalOutput = undefined; writeSession(workspace, s);
       markStage(workspace, 'plan', 'done');
@@ -1291,14 +1311,7 @@ async function main() {
       if (provider === 'dai-mcp') {
         const apiKey = process.env.DAI_API_KEY;
         if (!apiKey && !s.target.documentationId) fail(`the project these pictures go into is not chosen yet. Choose it first: documentation-ai-migrate project --workspace ${workspace}`);
-        const mcpUrl = process.env.DAI_MCP_URL ?? DEFAULT_MCP_URL;
-        let token = apiKey;
-        if (!token) {
-          try { token = (await signInWithBrowser({ mcpUrl, log: (message) => console.log(`  · ${message}`) })).accessToken; }
-          catch (error) { fail(`could not sign in to Documentation.AI: ${(error as Error).message}`); }
-        }
-        mcpClient = new McpClient({ url: mcpUrl, token: token!, clientVersion: CORE_VERSION });
-        await mcpClient.connect();
+        mcpClient = await connectToAuthoringServer(process.env.DAI_MCP_URL ?? DEFAULT_MCP_URL, apiKey);
         if (!(await mcpClient.listTools()).includes('import_media')) {
           await mcpClient.close();
           fail('this Documentation.AI server does not offer media import yet (no import_media tool). Use --provider none --keep-external --by "<who>" to keep the pictures where they are served today, or --provider dai-api with a project API key');
@@ -1893,12 +1906,7 @@ async function main() {
       // person finds out now, not after an hour's work, whether their account can edit the project;
       // and hosted pictures are filed per project, so `assets` has to know which one.
       const workspace = ws(); const s = readSession(workspace);
-      const mcpUrl = process.env.DAI_MCP_URL ?? DEFAULT_MCP_URL;
-      let signedIn: string;
-      try { signedIn = (await signInWithBrowser({ mcpUrl, log: (message) => console.log(`  · ${message}`) })).accessToken; }
-      catch (error) { fail(`could not sign in to Documentation.AI: ${(error as Error).message}`); }
-      const client = new McpClient({ url: mcpUrl, token: signedIn, clientVersion: CORE_VERSION });
-      await client.connect();
+      const client = await connectToAuthoringServer(process.env.DAI_MCP_URL ?? DEFAULT_MCP_URL);
       try {
         const listing = await client.call<Parameters<typeof writableProjects>[0]>('list_projects', {});
         const chosen = chooseProject(writableProjects(listing.structured), v.project, s.target.documentationId);
@@ -1947,16 +1955,10 @@ async function main() {
       const progressFile = join(workspace, 'report', 'mcp-publish.json');
       const mcpUrl = process.env.DAI_MCP_URL ?? DEFAULT_MCP_URL;
       // Whoever migrates into a project already has an account with access to it, so signing in is
-      // enough: the same browser sign-in every MCP host uses. A project API key (DAI_API_KEY) is the
-      // alternative for a machine nobody sits at. The sign-in token stays in memory and is never written anywhere.
+      // enough: the same browser sign-in every MCP host uses, kept from an earlier step when there
+      // was one. A project API key (DAI_API_KEY) is the alternative for a machine nobody sits at.
       const apiKey = process.env.DAI_API_KEY;
-      let token = apiKey;
-      if (!token) {
-        try { token = (await signInWithBrowser({ mcpUrl, log: (message) => console.log(`  · ${message}`) })).accessToken; }
-        catch (error) { fail(`could not sign in to Documentation.AI: ${(error as Error).message}`); }
-      }
-      const client = new McpClient({ url: mcpUrl, token: token!, clientVersion: CORE_VERSION });
-      await client.connect();
+      const client = await connectToAuthoringServer(mcpUrl, apiKey);
       // A key is bound to one project. An account may reach several, so the project is named, remembered, or the only one.
       let project: { organizationId: string; documentationId: string } | undefined;
       if (!apiKey) {
@@ -2070,6 +2072,13 @@ async function main() {
       writeJson(join(workspace, 'report', 'release-certificate.json'), certificate);
       markStage(workspace, 'release', 'done', `${currentOutputHash.slice(0, 12)} approved by all four human gates`);
       ok(`release certificate written for ${currentOutputHash.slice(0, 12)}; cutover is authorised for the pinned preview and output`);
+      // the migration needs no more of the person's sign-in
+      forgetSignIn(process.env.DAI_MCP_URL ?? DEFAULT_MCP_URL);
+      break;
+    }
+    case 'sign-out': {
+      forgetSignIn(process.env.DAI_MCP_URL ?? DEFAULT_MCP_URL);
+      ok(`signed out: no Documentation.AI sign-in is kept in ${signInFolder()}; the next step that needs one opens the browser`);
       break;
     }
     case 'report': {

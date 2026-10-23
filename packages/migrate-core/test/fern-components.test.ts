@@ -38,11 +38,30 @@ describe('MDX comments', () => {
     expect(isCommentOnlyExpression('/* note */ value')).toBe(false);
   });
 
-  it('are author notes: dropped on their own line and mid-sentence, never run or written as placeholders', () => {
-    const { mdx } = convert('{/* TODO: refresh */}\n\nShip {/* faster? */} reliable APIs.\n\n<Note>\n{/* inside */}\nRead this.\n</Note>\n');
-    expect(mdx).not.toMatch(/UNSUPPORTED|QUARANTINED|TODO|faster/);
+  it('are kept as written, on their own line and mid-sentence, never run or written as placeholders', () => {
+    const { mdx, doc, resolved } = convert('{/* TODO: refresh */}\n\nShip {/* faster? */} reliable APIs.\n\n<Note>\n{/* inside */}\nRead this.\n</Note>\n');
+    expect(mdx).not.toMatch(/UNSUPPORTED|QUARANTINED/);
+    for (const comment of ['{/* TODO: refresh */}', '{/* faster? */}', '{/* inside */}']) expect(mdx).toContain(comment);
     expect(mdx).toContain('reliable APIs.');
     expect(mdx).toContain('Read this.');
+    expect(validateMdx(mdx).filter((issue) => issue.severity === 'error')).toEqual([]);
+    expect(fidelityEqual(authoredContentSnapshot(doc), authoredContentSnapshot(resolved))).toBe(true);
+  });
+
+  it('keep the tests a docs-as-tests site runs from them: Doc Detective\'s arrive byte for byte and read back the same', () => {
+    // the shape of Doc Detective's own Fern pages, whose CI runs these comments as tests
+    const source = '{/* test {"testId": "fill-fields"} */}\n\n1. Open the form.\n\n   {/* step {"goTo": "https://example.com/form"} */}\n\n2. Type your first name.\n\n{/* step {"description":"Type in the First Name","find":{"elementText":"First Name"},"type":"Ada"} */}\n\n{/* test end */}\n';
+    const { mdx, resolved } = convert(source);
+    for (const comment of source.match(/\{\/\*[\s\S]*?\*\/\}/g)!) expect(mdx).toContain(comment);
+    // the page the platform serves, read back, says what was migrated: the comments do not count as a difference
+    const readBack = markdownToIr(mdx, { platform: 'dai', file: 'page.mdx', pageId: 'p' });
+    expect(fidelityEqual(authoredContentSnapshot(resolved), authoredContentSnapshot(readBack))).toBe(true);
+  });
+
+  it('turn line comments into the block comments saying the same, which the written page can hold on one line', () => {
+    const { mdx } = convert('{// a line\n// another\n}\n\nText.\n');
+    expect(mdx).toContain('{/* a line */ /* another */}');
+    expect(validateMdx(mdx).filter((issue) => issue.severity === 'error')).toEqual([]);
   });
 });
 

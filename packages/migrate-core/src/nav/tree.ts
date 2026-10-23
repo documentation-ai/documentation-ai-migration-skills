@@ -5,7 +5,7 @@
 import { attachHelpCenterHub } from './help-center.js';
 import { specOutputPath } from '../openapi/graph.js';
 import { stringify as toYaml } from 'yaml';
-import { readEditedYaml } from '../session/edited-files.js';
+import { PLAN_YAML, readEditedYaml } from '../session/edited-files.js';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { slugify } from '../urls/slugger.js';
@@ -183,7 +183,7 @@ export function sourceNavigationFromDiscovered(
 }
 
 export function writeTree(workspace: string, tree: Tree): void {
-  writeFileSync(join(workspace, 'plan', 'tree.yaml'), toYaml(tree), { mode: 0o600 });
+  writeFileSync(join(workspace, 'plan', 'tree.yaml'), toYaml(tree, PLAN_YAML), { mode: 0o600 });
 }
 
 export function readTree(workspace: string): Tree {

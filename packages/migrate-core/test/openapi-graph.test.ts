@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { captureSpecGraph, parseSpec, pointerValue, writeSpecOutput } from '../src/openapi/graph.js';
+import { captureSpecGraph, cutRecursiveSchemas, parseSpec, pointerValue, writeSpecOutput } from '../src/openapi/graph.js';
 import { readmeCatalogSpecs } from '../src/openapi/readme.js';
 import { sha256 } from '../src/session/ids.js';
 
@@ -31,9 +31,37 @@ describe('OpenAPI preservation', () => {
     const manifest = await captureSpecGraph({ workspace: ws, roots: [url], fetch: async () => response(spec) });
     writeSpecOutput(ws, manifest, join(ws, 'output'));
     const output = JSON.parse(readFileSync(join(ws, 'output/api-reference', manifest.documents[0].file), 'utf8')) as unknown;
-    expect(output).toEqual(spec);
+    // all of it as written, but for the one place Node repeats inside itself, which the platform cannot expand
+    const published = JSON.parse(JSON.stringify(spec));
+    published.components.schemas.Node.allOf[1].properties.next = { type: 'object', title: 'Node' };
+    expect(output).toEqual(published);
+    expect(manifest.documents[0].recursiveSchemas).toEqual(['Node']);
     expect(manifest.operations.map((operation) => operation.method)).toEqual(['POST', 'TRACE', 'POST']);
     expect(readFileSync(join(ws, 'source-cache/openapi', `${sha256(url)}.source`), 'utf8')).toBe(JSON.stringify(spec));
+  });
+
+  it('cuts only the references that close a loop, so a tree-shaped schema still gets its API pages', () => {
+    const tree = { $ref: '#/components/schemas/ContentTree' };
+    const spec = { ...root, paths: {}, components: { schemas: {
+      // PrivateGPT's: a node whose children are more nodes
+      ContentTree: { type: 'object', properties: { id: { type: 'string' }, children: { type: 'array', description: 'Child nodes', items: { ...tree, description: 'A child' } } } },
+      ConvertResponse: { type: 'object', properties: { content: { anyOf: [{ type: 'string' }, tree] }, example: tree }, example: { content: tree } },
+      // two schemas that refer to each other: the second reference closes the loop
+      Folder: { type: 'object', properties: { files: { type: 'array', items: { $ref: '#/components/schemas/File' } } } },
+      File: { type: 'object', properties: { parent: { $ref: '#/components/schemas/Folder' } } },
+    } } };
+    const { document, cut } = cutRecursiveSchemas(spec as never);
+    const schemas = (document as typeof spec).components.schemas as Record<string, any>;
+    expect(cut).toEqual(['ContentTree', 'Folder']);
+    expect(schemas.ContentTree.properties.children).toEqual({ type: 'array', description: 'Child nodes', items: { description: 'A child', type: 'object', title: 'ContentTree' } });
+    expect(schemas.ContentTree.properties.id).toEqual({ type: 'string' });
+    // references that do not loop, a property named `example`, and example data are left as written
+    expect(schemas.ConvertResponse).toEqual(spec.components.schemas.ConvertResponse);
+    expect(schemas.Folder).toEqual(spec.components.schemas.Folder);
+    expect(schemas.File.properties.parent).toEqual({ type: 'object', title: 'Folder' });
+    // a spec with no loop is returned untouched
+    const plain = { ...root, paths: {}, components: { schemas: { A: { type: 'object', properties: { b: { $ref: '#/components/schemas/B' } } }, B: { type: 'string' } } } };
+    expect(cutRecursiveSchemas(plain as never)).toEqual({ document: plain, cut: [] });
   });
 
   it('captures external and circular references once and preserves reference siblings', async () => {

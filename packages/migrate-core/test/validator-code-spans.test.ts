@@ -16,4 +16,13 @@ describe('code spans in the strict validator', () => {
   it('still refuses an expression in prose', () => {
     expect(validateMdx(page('Write {variable} here.')).some((i) => i.code === 'expression')).toBe(true);
   });
+  // Doc Detective's pages: 576 refusals on pages the platform compiles, which would have held the release
+  it('reads a comment as a comment however many braces its text holds, on one line or several', () => {
+    const tests = '{/* step {"stepId":"annotate-add-step","annotate":{"add":[{"id":"guide","callout":"#username-input"}]}} */}\n\n{/* test {\n  "testId": "fill-fields"\n} */}\n\nText.';
+    expect(validateMdx(page(tests)).filter((i) => i.code === 'expression')).toEqual([]);
+    expect(validateMdx(page('{/* note */} then {variable}')).some((i) => i.code === 'expression')).toBe(true);
+  });
+  it('reads a fenced block inside a quote as code', () => {
+    expect(validateMdx(page('> **Before:**\n>\n> ```json\n> { "timeout": 5000 }\n> ```\n>\n> After.')).filter((i) => i.code === 'expression')).toEqual([]);
+  });
 });

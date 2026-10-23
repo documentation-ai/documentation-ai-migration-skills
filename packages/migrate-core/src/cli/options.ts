@@ -65,8 +65,8 @@ Commands (run in order; the workflow has exactly four standard human gates):
                can edit the project, and it is what files hosted pictures under the right project.
   publish      [--project "<name or id>"] [--branch <working version>] [--remove-old-pages] [--no-wait] [--preview-timeout min]
                the MCP flow, instead of write --push: sends the output straight into your Documentation.AI project through the
-               Authoring MCP server. No git and no API key: it opens your browser to sign in to Documentation.AI, the same way
-               an assistant connects to the MCP server (the sign-in is kept in memory only). With several projects, name one
+               Authoring MCP server. No git and no API key: it signs in to Documentation.AI through your browser, the same way
+               an assistant connects to the MCP server, or reuses the sign-in an earlier step kept. With several projects, name one
                with --project; it is remembered for this migration. DAI_API_KEY, when set, is used instead of signing in
                (for a machine nobody sits at) and also looks the preview address up.
                Everything lands on a working version of its own, published once; the platform then builds its preview. The
@@ -83,6 +83,9 @@ Commands (run in order; the workflow has exactly four standard human gates):
                records that a named person looked at a preview finding and accepted it; verify --preview then reports the route
                as accepted instead of failing. Without --route, lists what has been accepted.
   release                                                            validates all four approvals and writes an immutable release certificate
+  sign-out                                                           deletes the Documentation.AI sign-in kept between steps. project, assets and
+               publish sign in through your browser once and keep the sign-in, readable only by you, in your configuration
+               folder (~/.config/documentation-ai-migrate, %APPDATA% on Windows) until it expires or release runs
   report       [--no-pdf] [--summary]                               → report/summary.md, report/platform-gaps.json,
                and the customer-facing report/customer-report.{html,pdf,json}: what was migrated,
                what did not carry over and why, and what still needs a customer decision.

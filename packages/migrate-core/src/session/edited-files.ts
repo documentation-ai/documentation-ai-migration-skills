@@ -42,6 +42,14 @@ export function parseEditedJson<T>(text: string, path: string): T {
 }
 
 /**
+ * Pages of one section share their `group` list, and YAML writes a repeated object as an alias by
+ * default; past 100 aliases (Doc Detective's 210 pages made 187) the reader refuses the file as a
+ * resource-exhaustion attack, and the migration stopped at acquire. Every plan file a person
+ * reviews is written out in full instead.
+ */
+export const PLAN_YAML = { aliasDuplicateObjects: false } as const;
+
+/**
  * A YAML file a person may have edited, with its path in any error and values wrapped in curly
  * quotes unwrapped. `keepQuotes` is for a file that carries text copied from the source, such as
  * the tree's page titles, where a title wrapped in curly quotes is the author's own.

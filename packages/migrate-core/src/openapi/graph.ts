@@ -7,7 +7,11 @@ import { mapConcurrent } from '../scrape/concurrency.js';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type ObjectValue = { [key: string]: Json };
-export interface SpecDocument { source: string; sourceHash: string; outputHash: string; file: string; references: Array<{ pointer: string; target: string }> }
+export interface SpecDocument {
+  source: string; sourceHash: string; outputHash: string; file: string; references: Array<{ pointer: string; target: string }>;
+  /** Schemas that contain themselves, shown as a plain object where they repeat (see cutRecursiveSchemas). */
+  recursiveSchemas?: string[];
+}
 export interface SpecOperation { spec: string; kind: 'path' | 'webhook'; path: string; method: string; operationId?: string; pointer: string }
 export interface SpecManifest { version: 1; roots: string[]; documents: SpecDocument[]; operations: SpecOperation[] }
 export interface SpecFetchResult { body: string; finalUrl?: string; status: number }
@@ -67,6 +71,67 @@ function rewriteDocument(value: Json, base: string, references: SpecDocument['re
   }));
 }
 
+/** Keywords whose value is example data, not schema; a `$ref` inside one is a payload. */
+const DATA_KEYS = new Set(['example', 'examples', 'default', 'const', 'enum']);
+/** Keywords whose keys are names (a property called `example` is a schema, not data). */
+const NAME_MAPS = new Set(['properties', 'patternProperties', '$defs', 'definitions']);
+
+/** Every schema `$ref` under `value`, offered to `replace`; a value it returns takes the reference's place. */
+function mapSchemaRefs(value: Json, replace: (ref: string, holder: ObjectValue) => Json | undefined, key?: string, named = false): Json {
+  if (!named && key !== undefined && DATA_KEYS.has(key)) return value;
+  if (Array.isArray(value)) return value.map((entry) => mapSchemaRefs(entry, replace));
+  const record = obj(value); if (!record) return value;
+  if (typeof record.$ref === 'string') { const replaced = replace(record.$ref, record); if (replaced !== undefined) return replaced; }
+  const namesFollow = !named && key !== undefined && NAME_MAPS.has(key);
+  return Object.fromEntries(Object.entries(record).map(([childKey, child]) => [childKey, mapSchemaRefs(child, replace, childKey, namesFollow)]));
+}
+
+const schemaRefName = (ref: string): string | undefined => {
+  const match = /^#\/components\/schemas\/([^/]+)$/.exec(ref);
+  return match ? decodeURIComponent(match[1]).replace(/~1/g, '/').replace(/~0/g, '~') : undefined;
+};
+
+/**
+ * Documentation.AI expands every `$ref` before it builds a spec's API pages, and a schema that
+ * contains itself (a tree node whose `children` are more nodes) never finishes expanding: PrivateGPT's
+ * `ContentTree` failed its whole deployment with "Converting circular structure to JSON". In the copy
+ * the platform reads, each reference that leads back into a schema already being expanded becomes a
+ * plain object titled with that schema's name, so the tree is documented down to the repeat. Every
+ * other reference, and the source spec itself, stay as written. Returns the schemas cut.
+ */
+export function cutRecursiveSchemas(document: Json): { document: Json; cut: string[] } {
+  const components = obj(obj(document)?.components);
+  const schemas = obj(components?.schemas);
+  if (!components || !schemas) return { document, cut: [] };
+  const names = Object.keys(schemas);
+  const edges = new Map(names.map((name) => {
+    const targets = new Set<string>();
+    mapSchemaRefs(schemas[name], (ref) => { const target = schemaRefName(ref); if (target && Object.hasOwn(schemas, target)) targets.add(target); return undefined; });
+    return [name, targets] as const;
+  }));
+  // depth first, in the spec's own order: a reference to a schema still open on the walk closes a loop
+  const open = new Set<string>(); const closed = new Set<string>(); const loops = new Map<string, Set<string>>();
+  const walk = (name: string): void => {
+    open.add(name);
+    for (const target of edges.get(name) ?? []) {
+      if (open.has(target)) loops.set(name, (loops.get(name) ?? new Set()).add(target));
+      else if (!closed.has(target)) walk(target);
+    }
+    open.delete(name); closed.add(name);
+  };
+  for (const name of names) if (!closed.has(name)) walk(name);
+  if (!loops.size) return { document, cut: [] };
+  const cut = new Set<string>();
+  const rewritten = Object.fromEntries(names.map((name) => [name, loops.has(name) ? mapSchemaRefs(schemas[name], (ref, holder) => {
+    const target = schemaRefName(ref);
+    if (!target || !loops.get(name)!.has(target)) return undefined;
+    cut.add(target);
+    const { $ref: _ref, ...rest } = holder;
+    return { ...rest, type: 'object', title: target };
+  }) : schemas[name]]));
+  return { document: { ...obj(document)!, components: { ...components, schemas: rewritten } }, cut: [...cut] };
+}
+
 export function pointerValue(document: Json, fragment: string): Json {
   if (!fragment || fragment === '#') return document;
   const pointer = decodeURIComponent(fragment.replace(/^#/, ''));
@@ -110,13 +175,14 @@ export async function captureSpecGraph(input: SpecGraphInput): Promise<SpecManif
       const parsed = parseSpec(response.body);
       if (roots.includes(url) && !/^3\.(?:0|1)\./.test(String(obj(parsed)?.openapi ?? ''))) throw new Error(`${url}: target migration currently supports OpenAPI 3.0 and 3.1; Swagger 2 / other versions require a lossless version adapter`);
       const references: SpecDocument['references'] = [];
-      const output = JSON.stringify(rewriteDocument(parsed, url, references, true), null, 2) + '\n';
+      const { document: published, cut } = cutRecursiveSchemas(rewriteDocument(parsed, url, references, true));
+      const output = JSON.stringify(published, null, 2) + '\n';
       const file = fileFor(url);
       const sourceFile = join(dir, `${sha256(url)}.source`);
       if (existsSync(sourceFile) && readFileSync(sourceFile, 'utf8') !== response.body) throw new Error(`${url}: source spec changed during this capture; start a new workspace`);
       writeFileSync(sourceFile, response.body, { mode: 0o600 });
       writeFileSync(join(dir, file), output, { mode: 0o600 });
-      documents.set(url, { source: url, sourceHash: sha256(response.body), outputHash: sha256(output), file, references });
+      documents.set(url, { source: url, sourceHash: sha256(response.body), outputHash: sha256(output), file, references, ...(cut.length ? { recursiveSchemas: cut } : {}) });
       for (const ref of references) {
         const target = documentUrl(ref.target);
         if (!queued.has(target)) { queued.add(target); pending.push(target); }

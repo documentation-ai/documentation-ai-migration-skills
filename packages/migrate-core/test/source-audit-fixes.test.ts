@@ -43,10 +43,11 @@ describe('Docusaurus', () => {
     expect(fidelityEqual(authoredContentSnapshot(doc), authoredContentSnapshot(resolved))).toBe(true);
   });
 
-  it('keeps a heading id written as an MDX comment, and drops other comments', () => {
+  it('keeps a heading id written as an MDX comment as the anchor, and other comments as written', () => {
     const doc = markdownToIr('## Headings {/* #my-heading-id */}\n\nText {/* a note */} here.\n', { platform: 'docusaurus', file: 'docs/x.mdx', pageId: 'p' });
     expect(doc.children[0]).toMatchObject({ type: 'heading', sourceId: 'my-heading-id' });
-    expect(JSON.stringify(doc.children[1])).not.toContain('note');
+    expect(JSON.stringify(doc.children[0])).not.toContain('/*');
+    expect(JSON.stringify(doc.children[1])).toContain('{/* a note */}');
   });
 
   it('drops MDX import and export lines, which define what a page uses and are never its content', () => {

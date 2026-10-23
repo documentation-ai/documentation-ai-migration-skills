@@ -9,6 +9,7 @@
  */
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { PLAN_YAML } from '../session/edited-files.js';
 import { stringify as toYaml } from 'yaml';
 import { readEditedYaml } from '../session/edited-files.js';
 import type { SourceManifest, SourceManifestPage } from './manifest.js';
@@ -347,7 +348,7 @@ export function recordScopeExclusions(workspace: string, entries: readonly Scope
   if (!added.length && !newDecisions.length) return 0;
   // every other decision in the file is carried as it stands: dropping one would undo a person's decision
   const record = { excluded: [...existing.excluded, ...added], substituted: existing.substituted, assets: existing.assets, helpSystems: [...existing.helpSystems, ...newDecisions], differences: existing.differences };
-  writeFileSync(scopeDecisionsPath(workspace), `${TEMPLATE.slice(0, TEMPLATE.indexOf('excluded: []'))}${toYaml(record)}`, { mode: 0o600 });
+  writeFileSync(scopeDecisionsPath(workspace), `${TEMPLATE.slice(0, TEMPLATE.indexOf('excluded: []'))}${toYaml(record, PLAN_YAML)}`, { mode: 0o600 });
   return added.length;
 }
 

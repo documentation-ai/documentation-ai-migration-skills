@@ -141,9 +141,12 @@ export function splitFrontmatter(mdx: string): { frontmatter: string | null; bod
 
 /** Remove fenced code and inline code so tag scanning does not see examples. */
 function stripCode(body: string): string {
-  // fences count only at line start (a mid-line ``` must not hide the rest of the document); a component's children indent theirs
+  // fences count only at line start (a mid-line ``` must not hide the rest of the document); a component's children
+  // indent theirs, and a quote's lines carry its `>` markers
   return body
-    .replace(/^ *(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n *\1[ \t]*$/gm, (s) => s.replace(/[^\n]/g, ' '))
+    .replace(/^ *(?:> ?)*(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n *(?:> ?)*\1[ \t]*$/gm, (s) => s.replace(/[^\n]/g, ' '))
+    // an MDX comment is text no one runs, whatever braces it holds (Doc Detective's tests are JSON inside comments)
+    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, (s) => s.replace(/[^\n]/g, ' '))
     // a code span opens and closes with the same run of backticks, and may hold a shorter run inside
     .replace(/(`+)(?:(?!\1)[^\n])*\1/g, (s) => ' '.repeat(s.length));
 }
