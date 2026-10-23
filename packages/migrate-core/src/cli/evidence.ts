@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { frozenRootPath, sourceManifestPath, type SourceManifest } from '../evidence/manifest.js';
 import { nativeNavigationWitness } from '../evidence/native-navigation.js';
 import { attachHelpCenterHub } from '../nav/help-center.js';
-import { buildDocumentationNavigation, sourceNavigationFromDiscovered, type SourceNavigationNode, type Tree } from '../nav/tree.js';
+import { buildDocumentationNavigation, landingChild, sourceNavigationFromDiscovered, type SourceNavigationNode, type Tree } from '../nav/tree.js';
 import { getProfile } from '../scrape/profiles.js';
 import { CanonicalHosts } from '../scrape/fetcher.js';
 import { navigationFromFrozenPages, type DiscoveredNavigationNode, type DiscoveryResult } from '../scrape/discovery.js';
@@ -24,7 +24,8 @@ import { siteLinksFor, type SiteLinks } from '../urls/site-links.js';
 import { readUrlPlan } from '../urls/plan.js';
 import type { SourceEvidence } from '../verify/gates.js';
 import type { ExpectedNavigationEntry } from '../verify/browser.js';
-import { canonicalHostsPath, readJson } from './io.js';
+import { canonicalHostsPath, readJson, repoFileReader } from './io.js';
+import { mintlifySnippetResolver } from '../adapters/mintlify.js';
 import { readPlatformMeta } from './platform-meta.js';
 
 /**
@@ -130,20 +131,33 @@ export function unservedRoutes(workspace: string, tree: Tree): Set<string> {
  * The sidebar the source states, flattened in reading order. A page placed in two groups
  * appears twice, which is what the rendered sidebar must show.
  */
-export function expectedSidebar(tree: Tree): ExpectedNavigationEntry[] {
+export function expectedSidebar(tree: Tree, bound: ReadonlySet<string> = new Set()): ExpectedNavigationEntry[] {
   const byId = new Map(tree.pages.map((page) => [page.id, page]));
-  const out: ExpectedNavigationEntry[] = [];
-  const walk = (nodes: SourceNavigationNode[], groupPath: string[]): void => {
-    for (const node of nodes) {
+  const eligible = new Map(tree.pages.filter((page) => page.migrate && page.newPath).map((page) => [page.id, page]));
+  const out: Array<ExpectedNavigationEntry & { pageId: string; top: number }> = [];
+  const walk = (nodes: SourceNavigationNode[], groupPath: string[], top: number): void => {
+    nodes.forEach((node, index) => {
       // an entry the source hides is in the sidebar only once an operator has placed unlisted pages
-      if (node.hidden && !tree.unlistedPlacement) continue;
-      if (node.type === 'group') { walk(node.children, [...groupPath, node.label]); continue; }
+      if (node.hidden && !tree.unlistedPlacement) return;
+      // entries are grouped by the top-bar section (tab, product…) they render in; -1 is the one shared sidebar
+      const here = groupPath.length ? top : node.type === 'group' && (node.kind ?? 'group') !== 'group' ? index : -1;
+      if (node.type === 'group') {
+        // A tab, dropdown or other top-bar container opens on its own page from the top bar (the
+        // container's `path`, see buildSlice); no sidebar lists it. A plain group draws its label.
+        const own = node.pageId ?? landingChild(node, eligible, bound)?.pageId;
+        const topBar = (node.kind ?? 'group') !== 'group' && own !== undefined && !bound.has(own) && node.children.some((child) => child.type !== 'page' || child.pageId !== own);
+        walk(topBar ? node.children.filter((child) => child.type !== 'page' || child.pageId !== own) : node.children, [...groupPath, node.label], here);
+        return;
+      }
       const page = byId.get(node.pageId);
-      if (page?.migrate && page.newPath) out.push({ groupPath, label: node.title ?? page.sidebarTitle ?? page.title });
-    }
+      if (page?.migrate && page.newPath) out.push({ groupPath, label: node.title ?? page.sidebarTitle ?? page.title, route: page.newPath, pageId: page.id, top: here });
+    });
   };
-  walk(tree.navigation ?? [], []);
-  return out;
+  walk(tree.navigation ?? [], [], 0);
+  // A top-level section whose every page is written with "show-sidebar": false (the source draws no
+  // sidebar there, like demo-64's one-page Home tab) renders no sidebar that could list its entries.
+  const drawn = new Set(out.filter((entry) => byId.get(entry.pageId)?.sourceSidebar !== 'absent').map((entry) => entry.top));
+  return out.filter((entry) => entry.top === -1 || drawn.has(entry.top)).map(({ groupPath, label, route }) => ({ groupPath, label, route }));
 }
 
 /**
@@ -174,9 +188,12 @@ export function buildSourceEvidence(workspace: string, tree: Tree): SourceEviden
       navigation = buildDocumentationNavigation({ ...tree, navigation: toSource(nodes) }, writtenPagePaths(workspace, tree), readPlatformMeta(workspace)).navigation;
     }
   } else if (!seed) {
+    // A page that includes another file (`<Code src>`, a Mintlify snippet) is read with it, as inventory read it
+    const root = frozenRootPath(workspace);
+    for (const page of pages) page.readers = { resolveFile: repoFileReader(root, join(root, page.path)), ...(tree.platform === 'mintlify' ? { resolveSnippet: mintlifySnippetResolver(root) } : {}) };
     // A repository states its navigation in its own configuration. Reading it again with the same
     // adapter, from the frozen bytes, is the witness a live site gets from its rendered sidebar.
-    const witness = nativeNavigationWitness(tree.platform, frozenRootPath(workspace));
+    const witness = nativeNavigationWitness(tree.platform, root);
     if (witness) {
       navigationSource = witness.source;
       navigation = buildDocumentationNavigation({ ...tree, navigation: witness.nodes }, writtenPagePaths(workspace, tree), readPlatformMeta(workspace)).navigation;

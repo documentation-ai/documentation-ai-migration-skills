@@ -406,7 +406,7 @@ describe('discovery', () => {
       'https://docs.example.com/Resources/Images/two.png',
       'https://cdn.example.net/three.png',
     ]);
-    // A repository source has no URL to resolve against, so its paths are left exactly as authored.
+    // A repository page names its files by path; one nobody hosted keeps the path the page wrote.
     const repo = { ...doc, source: 'docs/procedures/create.md' } as typeof doc;
     expect((rewriteAssetRefs(repo, manifest).children as Array<{ url: string }>)[0].url).toBe('../../Resources/Images/one.png');
   });
@@ -1230,6 +1230,23 @@ describe('svg sanitiser', () => {
     expect(out.startsWith('<svg')).toBe(true);
     expect(() => sanitizeSvgBytes(Buffer.from('<!DOCTYPE svg><svg/>'))).toThrow(/DOCTYPE/);
     expect(() => sanitizeSvgBytes(Buffer.from('<div>not svg</div>'))).toThrow(/standalone SVG/);
+  });
+
+  // A cleaned diagram lost its text's font and size, every colour set in a style attribute or an
+  // Illustrator/Figma class sheet, and its blur: it was safe, and no longer looked like the original.
+  it('keeps how the drawing looks: text styling, style declarations, class sheets and effects', () => {
+    const out = sanitizeSvgBytes(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg"><defs><style><![CDATA[.cls-1{fill:#756e98} g > .cls-2{font-family:Inter, sans-serif}]]></style><linearGradient id="g"><stop offset="0" stop-color="#fff"/></linearGradient><filter id="f"><feGaussianBlur stdDeviation="3"/></filter></defs><rect class="cls-1" style="fill:url(#g);stroke-width:2;position:absolute"/><text x="20" y="47" font-family="sans-serif" font-size="20" text-anchor="middle">PrivateGPT</text></svg>`)).toString();
+    expect(out).toContain('<style>.cls-1{fill:#756e98} g > .cls-2{font-family:Inter, sans-serif}</style>');
+    expect(out).toContain('style="fill:url(#g);stroke-width:2"');
+    expect(out).toContain('font-family="sans-serif" font-size="20" text-anchor="middle"');
+    expect(out).toContain('<feGaussianBlur stdDeviation="3">');
+  });
+
+  it('still removes whatever would load or run something, wherever it is written', () => {
+    const out = sanitizeSvgBytes(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(https://evil.example/x.css); .a{background:url(//evil.example/t.png)} .b{fill:red}</style><rect fill="url(https://evil.example/p#x)" style="fill:url(https://evil.example/q);stroke:blue"/><style><![CDATA[</style><script>alert(1)</script>]]></style></svg>`)).toString();
+    expect(out).not.toMatch(/evil\.example|@import|<script|alert/);
+    expect(out).toContain('.b{fill:red}');
+    expect(out).toContain('<rect style="stroke:blue">');
   });
 });
 

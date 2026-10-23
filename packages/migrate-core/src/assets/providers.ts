@@ -1,5 +1,6 @@
-import { readFileSync, statSync } from 'node:fs';
-import { extname } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { extname, join } from 'node:path';
 import { PutObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
 import type { AssetEntry, AssetManifest } from './manifest.js';
 import { writeManifest } from './manifest.js';
@@ -28,6 +29,10 @@ export interface AssetProviderOptions {
   dai?: { baseUrl: string; token: string };
   fetchImpl?: typeof fetch;
   s3Client?: Pick<S3Client, 'send'>;
+  /** Set by ingestAssets: where an upload request is recorded for the stage's message and the next run. */
+  manifest?: AssetManifest;
+  /** The clock, so a test can expire an upload link. */
+  now?: () => Date;
 }
 
 /** One bucket and the public base its objects are served from. */
@@ -323,6 +328,105 @@ async function importBatch(batch: AssetEntry[], mcp: NonNullable<AssetProviderOp
   });
 }
 
+/** The name a file waits under in the upload folder and is found by in the library: its own name and its content hash, so no two files share one. */
+export function uploadName(entry: Pick<AssetEntry, 'hash' | 'sourceUrls'>, extension: string): string {
+  return `${libraryName(entry, extension).replace(/\.[^.]+$/, '')}-${entry.hash.replace(/[^0-9a-f]/gi, '').slice(0, 10)}.${extension}`;
+}
+
+interface LibraryFile { name: string; url: string; sizeBytes: number }
+
+/** The upload page shows a note of at most 200 characters (`request_upload` refuses a longer one); a long folder path is shortened to its end. */
+export function uploadNote(count: number, folder: string): string {
+  const lead = `${count} file(s) from your documentation migration: drop every file from the folder `;
+  const room = 200 - lead.length;
+  return lead + (folder.length <= room ? folder : `…${folder.slice(folder.length - room + 1)}`);
+}
+
+/** Every file the project's library holds, read page by page. */
+async function libraryFiles(mcp: NonNullable<AssetProviderOptions['mcp']>): Promise<LibraryFile[]> {
+  const files: LibraryFile[] = [];
+  let cursor: string | undefined;
+  do {
+    const { structured } = await mcp.client.call<{ media?: LibraryFile[]; nextCursor?: string }>('list_media', { limit: 500, ...(cursor ? { cursor } : {}), ...(mcp.project ?? {}) });
+    files.push(...(structured.media ?? []));
+    cursor = structured.nextCursor;
+  } while (cursor && files.length < 50_000);
+  return files;
+}
+
+/**
+ * Files only this migration has - a repository's own images, an SVG cleaned of scripts, a capture
+ * the source no longer serves - reach the project through its upload page. A tool call carries
+ * text, not bytes, and a customer is never asked for an API key: `request_upload` gives a link that
+ * opens the project's upload page for the person already signed in.
+ *
+ * The files wait in `<workspace>/upload` under names that carry their content hash. Each run first
+ * looks for them in the library - by that name, or for a file the library already held, by size and
+ * content - and asks for a drop only for what it does not find, so a second run after the drop
+ * finds them all and needs nothing from anyone.
+ */
+async function hostThroughUploadPage(
+  needBytes: Array<{ entry: AssetEntry; why: string }>,
+  options: AssetProviderOptions,
+  fetchImpl: typeof fetch,
+  succeed: (entry: AssetEntry, url: string, note?: string) => void,
+  fail: (entry: AssetEntry, error: string) => void,
+): Promise<void> {
+  const mcp = options.mcp!;
+  const library = await libraryFiles(mcp);
+  const byName = new Map(library.map((file) => [file.name, file]));
+  const contentOf = async (url: string): Promise<string | undefined> => {
+    try {
+      const res = await fetchImpl(url, { signal: AbortSignal.timeout(60_000) });
+      return res.ok ? createHash('sha256').update(Buffer.from(await res.arrayBuffer())).digest('hex') : undefined;
+    } catch { return undefined; }
+  };
+  // A library picture's address asks the image service to recompress it (`?fm=auto&auto=compress,format`),
+  // which serves other bytes than were stored; the stored file is the address without those options.
+  const holds = async (url: string, hash: string): Promise<boolean> => {
+    const original = url.split(/[?#]/)[0];
+    for (const candidate of new Set([original, url])) if ((await contentOf(candidate)) === hash) return true;
+    return false;
+  };
+  const waiting: Array<{ entry: AssetEntry; name: string; why: string }> = [];
+  for (const { entry, why } of needBytes) {
+    const media = platformMedia(entry);
+    if (!media || !entry.localPath) { fail(entry, `Documentation.AI does not accept ${entry.contentType || 'this type'}`); continue; }
+    const name = uploadName(entry, media.extension);
+    const size = capturedSize(entry);
+    const named = byName.get(name);
+    if (named && (size === undefined || named.sizeBytes === size)) { succeed(entry, named.url); continue; }
+    // the same bytes already in the library keep the name they were stored under
+    let same: LibraryFile | undefined;
+    for (const file of library.filter((candidate) => size !== undefined && candidate.sizeBytes === size)) {
+      if (await holds(file.url, entry.hash)) { same = file; break; }
+    }
+    if (same) { succeed(entry, same.url, `already in the project's library as ${same.name}`); continue; }
+    waiting.push({ entry, name, why });
+  }
+  const folder = join(options.workspace, 'upload');
+  rmSync(folder, { recursive: true, force: true });
+  if (!waiting.length) { delete options.manifest?.uploadRequest; return; }
+  // the folder holds exactly what is still to be dropped
+  mkdirSync(folder, { recursive: true, mode: 0o700 });
+  for (const { entry, name } of waiting) copyFileSync(entry.localPath!, join(folder, name));
+  const now = options.now?.() ?? new Date();
+  const open = options.manifest?.uploadRequest && Date.parse(options.manifest.uploadRequest.expiresAt) - now.getTime() > 2 * 60_000 ? options.manifest.uploadRequest : undefined;
+  let request = open;
+  if (!request) {
+    try {
+      const { structured } = await mcp.client.call<{ url: string; expiresAt: string; requestedAt: string }>('request_upload', { note: uploadNote(waiting.length, folder), ...(mcp.project ?? {}) });
+      request = { url: structured.url, expiresAt: structured.expiresAt, requestedAt: structured.requestedAt, folder, files: [] };
+    } catch (error) {
+      for (const { entry, why } of waiting) fail(entry, `cannot host through a sign-in: ${why}, and the upload page could not be opened (${(error as Error).message}). Uploading the captured file needs a project API key (DAI_API_KEY and DAI_API_BASE), or record that it stays where it is served today`);
+      return;
+    }
+  }
+  request = { ...request, folder, files: waiting.map(({ name }) => name) };
+  if (options.manifest) options.manifest.uploadRequest = request;
+  for (const { entry, name, why } of waiting) fail(entry, `waiting to be uploaded (${why}): drop ${name} from ${folder} on ${request.url}, then run assets again`);
+}
+
 export function s3Client(opts: S3StorageOptions): S3Client {
   const config: S3ClientConfig = { region: opts.region, endpoint: opts.endpoint, forcePathStyle: !!opts.endpoint };
   if (opts.accessKeyId && opts.secretAccessKey) config.credentials = { accessKeyId: opts.accessKeyId, secretAccessKey: opts.secretAccessKey };
@@ -350,6 +454,7 @@ export function assetFoldersElsewhere(manifest: AssetManifest, organizationId: s
 /** Ingest downloaded assets idempotently and checkpoint after every object or batch. */
 export async function ingestAssets(manifest: AssetManifest, options: AssetProviderOptions): Promise<AssetManifest> {
   manifest.provider = options.provider;
+  options = { ...options, manifest };
   const fetchImpl = options.fetchImpl ?? fetch;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   if (options.provider === 'dai-api') {
@@ -434,8 +539,9 @@ async function ingestToPlatform(
     needBytes.push(...entries.map((entry) => ({ entry, why: '' })));
   }
 
-  if (!needBytes.length) return;
+  if (!needBytes.length) { if (options.provider === 'dai-mcp') delete options.manifest?.uploadRequest; return; }
   if (!options.dai) {
+    if (options.provider === 'dai-mcp' && options.mcp) { await hostThroughUploadPage(needBytes, options, io.fetchImpl, succeed, fail); return; }
     for (const { entry, why } of needBytes) fail(entry, `cannot host through a sign-in: ${why}. Uploading the captured file needs a project API key (DAI_API_KEY and DAI_API_BASE), or record that it stays where it is served today`);
     return;
   }

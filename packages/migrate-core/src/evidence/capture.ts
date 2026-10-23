@@ -8,6 +8,7 @@ import type { DiscoveryResult, DiscoveredNavigationNode } from '../scrape/discov
 import { normaliseDiscoveryUrl } from '../scrape/discovery.js';
 import { CanonicalHosts } from '../scrape/fetcher.js';
 import { FROZEN_ROOT, assertRelativeSourcePath, type FreezeResult, type SourceManifest, type SourceManifestPage, type PageEvidence } from './manifest.js';
+import { parseEditedJson } from '../session/edited-files.js';
 
 interface CaptureContext { location: string; platform: string; contentContractVersion: string; capturedAt: string }
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -34,7 +35,8 @@ export function nativeSourceManifest(context: CaptureContext & { kind: 'repo' | 
     return readFileSync(join(root, path), 'utf8');
   };
   if (platform === 'mintlify') {
-    const config = object(JSON.parse(index(files.has('docs.json') ? 'docs.json' : 'mint.json', 'navigation-config')));
+    const configName = files.has('docs.json') ? 'docs.json' : 'mint.json';
+    const config = object(parseEditedJson(index(configName, 'navigation-config'), configName));
     const divisions = new Set(['versions', 'languages', 'tabs', 'anchors', 'dropdowns', 'products', 'menus', 'groups', 'pages', 'global']);
     const walk = (value: unknown, locale = '', version = ''): void => {
       if (typeof value === 'string') {
@@ -89,13 +91,15 @@ export function nativeSourceManifest(context: CaptureContext & { kind: 'repo' | 
       add(file.path, slug, 'filesystem', data.hidden !== true);
     }
   } else if (platform === 'docusaurus') {
-    // Docusaurus does not publish a page marked draft or unlisted, so counting it as published
-    // would demand a scope decision for a page the source never served.
+    // Docusaurus publishes Markdown from its docs, blog and pages folders only (a README beside the
+    // config is the repository's, not the site's), and never a page marked draft or unlisted:
+    // counting either as published demanded a scope decision for a page the source never served.
+    const servedFrom = /^(?:docs|versioned_docs|blog|src\/pages|i18n)\//;
     for (const file of freeze.files.filter((file) => /\.mdx?$/i.test(file.path) && !file.path.startsWith('node_modules/'))) {
       const raw = readFileSync(join(root, file.path), 'utf8');
       const frontmatter = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
       const data = frontmatter ? object(parseYaml(frontmatter[1])) : {};
-      add(file.path, file.path, 'filesystem', data.draft !== true && data.unlisted !== true);
+      add(file.path, file.path, 'filesystem', servedFrom.test(file.path) && data.draft !== true && data.unlisted !== true);
     }
   } else if (platform === 'nextra') {
     const roots = ['content/', 'src/content/', 'pages/', 'src/pages/'];
@@ -109,17 +113,29 @@ export function nativeSourceManifest(context: CaptureContext & { kind: 'repo' | 
     if (!configPath) manifest.issues!.push('no fern/docs.yml: the source universe cannot be read from the navigation it states');
     const referenced = new Set<string>();
     if (configPath) {
-      const collect = (value: unknown): void => {
-        if (Array.isArray(value)) { value.forEach(collect); return; }
-        const node = object(value);
-        if (typeof node.path === 'string') referenced.add(posix.normalize(posix.join('fern', node.path)));
-        if (typeof node.folder === 'string') {
-          const folder = posix.normalize(posix.join('fern', node.folder));
-          for (const file of freeze.files) if (file.path.startsWith(`${folder}/`) && /\.mdx?$/i.test(file.path)) referenced.add(file.path);
-        }
-        for (const child of Object.values(node)) if (child && typeof child === 'object') collect(child);
+      // Paths are relative to the YAML file that states them; a version or product file states its own
+      // navigation, and a changelog folder publishes every Markdown file in it.
+      const visited = new Set<string>();
+      const read = (yamlPath: string): void => {
+        if (visited.has(yamlPath) || !files.has(yamlPath)) return;
+        visited.add(yamlPath);
+        const base = posix.dirname(yamlPath);
+        const inFolder = (folder: string): void => { for (const file of freeze.files) if (file.path.startsWith(`${folder}/`) && /\.mdx?$/i.test(file.path)) referenced.add(file.path); };
+        const collect = (value: unknown, key?: string): void => {
+          if (Array.isArray(value)) { value.forEach((item) => collect(item, key)); return; }
+          const node = object(value);
+          if (typeof node.path === 'string') {
+            // versions and products name their file from the fern folder; every other entry from its own file
+            const target = posix.normalize(key === 'versions' || key === 'products' ? posix.join('fern', node.path) : posix.join(base, node.path));
+            if (/\.ya?ml$/i.test(target)) read(target); else referenced.add(target);
+          }
+          if (typeof node.folder === 'string') inFolder(posix.normalize(posix.join(base, node.folder)));
+          if (typeof node.changelog === 'string') inFolder(posix.normalize(posix.join(base, node.changelog)));
+          for (const [childKey, child] of Object.entries(node)) if (child && typeof child === 'object') collect(child, childKey);
+        };
+        collect(object(parseYaml(index(yamlPath, 'navigation-config'))));
       };
-      collect(object(parseYaml(index(configPath, 'navigation-config'))));
+      read(configPath);
     }
     for (const file of freeze.files.filter((file) => /\.mdx?$/i.test(file.path) && file.path.startsWith('fern/'))) {
       add(file.path, file.path, referenced.has(file.path) ? 'config' : 'filesystem', referenced.has(file.path));

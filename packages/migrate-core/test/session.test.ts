@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { captureMigratorProvenance, migratorDrift, type GitRunner, type MigratorProvenance } from '../src/session/provenance.js';
+import { captureMigratorProvenance, describeMigrator, migratorDrift, migratorProvenanceProblem, type GitRunner, type MigratorProvenance } from '../src/session/provenance.js';
 import { countQuarantine, writeQuarantine } from '../src/session/quarantine.js';
 import { ensureWorkspace, readSession, type Session } from '../src/session/workspace.js';
 import { sha256 } from '../src/session/ids.js';
@@ -37,13 +37,13 @@ afterAll(() => { while (cleanup.length) rmSync(cleanup.pop()!, { recursive: true
 const HEAD = 'a'.repeat(40);
 const BLOB = 'b'.repeat(40);
 const TRACKED_DIFF = 'diff --git a/packages/migrate-core/src/cli.ts b/packages/migrate-core/src/cli.ts\n--- a/packages/migrate-core/src/cli.ts\n+++ b/packages/migrate-core/src/cli.ts\n@@ -1 +1 @@\n-old\n+new\n';
-interface FakeTree { head?: string; status?: string; diff?: string; blobs?: Record<string, string> }
+interface FakeTree { head?: string; top?: string; status?: string; diff?: string; blobs?: Record<string, string> }
 
 /** Describes an imagined checkout through the git runner; no real repository is read. */
 function fakeGit(tree: FakeTree): GitRunner {
   return (args) => {
     switch (args[0]) {
-      case 'rev-parse': return `${tree.head ?? HEAD}\n`;
+      case 'rev-parse': return args[1] === '--show-toplevel' ? `${tree.top ?? '/migrator'}\n` : `${tree.head ?? HEAD}\n`;
       case 'status': return tree.status ?? '';
       case 'diff': return tree.diff ?? '';
       case 'hash-object': {
@@ -93,9 +93,30 @@ describe('migrator provenance', () => {
     expect(renamed).toEqual({ gitSha: HEAD, dirty: true, dirtyHash: sha256(renameDiff), packageVersion: '0.1.0' });
   });
 
-  it('refuses to pin a migrator that is not a git checkout', () => {
+  /**
+   * Claude Code, Codex and Cowork install the plugin by copying its folder without the git history,
+   * and the migrator refused to start there. An installed copy is pinned by its own files instead.
+   */
+  it('pins an installed copy, which is no git checkout, by its own files', () => {
+    const copy = temp('dai-installed-');
+    mkdirSync(join(copy, 'packages', 'migrate-core', 'src'), { recursive: true });
+    mkdirSync(join(copy, 'node_modules', 'x'), { recursive: true });
+    writeFileSync(join(copy, 'package.json'), '{"name":"copy"}\n');
+    writeFileSync(join(copy, 'packages', 'migrate-core', 'src', 'cli.ts'), 'export {};\n');
+    writeFileSync(join(copy, 'node_modules', 'x', 'index.js'), 'module.exports = 1;\n');
     const noRepo: GitRunner = () => { throw Object.assign(new Error('git failed'), { stderr: 'fatal: not a git repository (or any of the parent directories): .git\n' }); };
-    expect(() => captureMigratorProvenance({ repoRoot: '/elsewhere', packageVersion: '0.1.0', git: noRepo })).toThrow(/\/elsewhere is not a git checkout.*fatal: not a git repository/);
+    const pinned = captureMigratorProvenance({ repoRoot: copy, packageVersion: '0.1.0', git: noRepo });
+    expect(pinned).toEqual({ gitSha: '', dirty: false, dirtyHash: null, packageVersion: '0.1.0', filesHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(migratorProvenanceProblem(pinned)).toBeUndefined();
+    expect(describeMigrator(pinned)).toContain('installed copy');
+    // what npm installs is not the migrator; a changed source file is
+    writeFileSync(join(copy, 'node_modules', 'x', 'index.js'), 'module.exports = 2;\n');
+    expect(captureMigratorProvenance({ repoRoot: copy, packageVersion: '0.1.0', git: noRepo }).filesHash).toBe(pinned.filesHash);
+    writeFileSync(join(copy, 'packages', 'migrate-core', 'src', 'cli.ts'), 'export const changed = 1;\n');
+    const changed = captureMigratorProvenance({ repoRoot: copy, packageVersion: '0.1.0', git: noRepo });
+    expect(migratorDrift(pinned, changed)).toEqual([`installed files ${pinned.filesHash} → ${changed.filesHash}`]);
+    // a copy sitting inside some other repository is pinned the same way: that repository's commit is not this migrator's
+    expect(captureMigratorProvenance({ repoRoot: copy, packageVersion: '0.1.0', git: fakeGit({ top: '/home/someone' }) }).filesHash).toBe(changed.filesHash);
     expect(() => capture({ head: 'HEAD' })).toThrow(/unexpected "git rev-parse HEAD" output "HEAD"/);
   });
 

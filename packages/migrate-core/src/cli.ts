@@ -30,7 +30,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parse as parseYaml, stringify as toYaml } from 'yaml';
+import { stringify as toYaml } from 'yaml';
 import { Cookie, CookieJar } from 'tough-cookie';
 import { DEFAULT_ICON_LIBRARY, loadContract, validateSiteConfig } from '@dai/content-contract';
 import { freezeDirectory, frozenRootPath, narrowSourceManifest, sourceManifestPath, writeSourceManifest, type SourceManifest, type FreezeResult } from './evidence/manifest.js';
@@ -45,7 +45,7 @@ import { HELP, parseCommandLine } from './cli/options.js';
 import { titleHeading } from './ir/page-title.js';
 import { documentLinks } from './verify/source-truth.js';
 import { progressReporter } from './cli/progress.js';
-import { canonicalHostsPath, loadSnapshot, readJson, readSnapshotPage, resetDir, snapshotPageCount, snapshotPages, sourceFiles, writeJson } from './cli/io.js';
+import { canonicalHostsPath, loadSnapshot, readJson, readSnapshotPage, resetDir, snapshotPageCount, snapshotPages, sourceFiles, writeJson, repoFileReader } from './cli/io.js';
 import { buildSourceEvidence, expectedSidebar, frozenNavigationData, helpCenterHubRoutes, inheritedBrokenLinkRoutes, redirectSourceRoutes, siteLinksForWorkspace, unservedRoutes, writtenPagePaths } from './cli/evidence.js';
 import { captureOpenapi, type OpenapiCapture } from './cli/openapi-capture.js';
 import { attachHelpCenterHub, defaultHubPath, helpCenterHubMdx } from './nav/help-center.js';
@@ -58,7 +58,7 @@ import { acquiredHtml, readPlatformMeta, type PlatformMeta } from './cli/platfor
 import { assertOutsidePlugin, ensureWorkspace, readSession, writeSession, markStage, type Session, fileHash, recordRevision } from './session/workspace.js';
 import { acquireWorkspaceLock, type WorkspaceLock } from './session/lock.js';
 import { newMigrationId, pageIdFromPlatform, sha256 } from './session/ids.js';
-import { captureMigratorProvenance, describeMigrator, migratorDrift } from './session/provenance.js';
+import { captureMigratorProvenance, describeMigrator, migratorDrift, shortMigrator } from './session/provenance.js';
 import { GATE_NAMES, gateSubjects, pinGateSubjects, releaseApprovalProblems } from './session/approvals.js';
 import { countQuarantine, writeQuarantine } from './session/quarantine.js';
 import { preflight, probePushAccess } from './session/preflight.js';
@@ -85,7 +85,7 @@ import { labelFromPathSegment, statedLabelsBySlug } from './nav/labels.js';
 import { writeTree, readTree, buildDocumentationNavigation, pagesWithoutPlacement, placedPageIds, sourceNavigationFromDiscovered, type GroupOpenapiRef, type SourceNavigationNode, type Tree, type TreePage } from './nav/tree.js';
 import { documentationSiteSettings, proposeSitePlan, readSitePlan, sitePlanImages, sitePlanPath, sourceIconLibrary, writeSitePlan, MIGRATION_STYLESHEET, MIGRATION_STYLESHEET_CSS } from './nav/site-plan.js';
 import { applyIconPolicy } from './nav/icon-suggest.js';
-import { mintlifyBranding, siteBrandingFromPage, type SiteBranding } from './scrape/site-branding.js';
+import { fernBranding, mintlifyBranding, siteBrandingFromPage, type SiteBranding } from './scrape/site-branding.js';
 import { defaultUrlPlan, extendUrlPlan, writeUrlPlan, readUrlPlan, applyUrlPlan, redirectMaps, anchorMap, type RedirectRule } from './urls/plan.js';
 import { retargetDocLinks, siteLinkResolver, siteLinkTarget, siteLinksFor, type SiteLinks } from './urls/site-links.js';
 import { RulesEngine, applyDeclaredLosses, loadMappings, collectComponents, planEntryIsDecided, type ComponentPlanEntry } from './components/rules-engine.js';
@@ -98,7 +98,7 @@ import type { DocIR } from './ir/types.js';
 import { walkBlocks, inlineText, renderedText as anchorText, type Block } from './ir/types.js';
 import { applyBlockExclusions, assertExclusionsPermitted, blockExclusionsPath, readBlockExclusions, unmatchedBlockExclusions } from './ir/exclusions.js';
 import { describeUnreadableDimension, unreadableImageDimensions } from './ir/dimensions.js';
-import { readManifest, referenceTally, rewriteAssetRefs, dropExcludedAssets, d360MediaResolver, resolveAssetUrl, SITE_BRANDING_PAGE } from './assets/manifest.js';
+import { readManifest, referenceTally, rewriteAssetRefs, dropExcludedAssets, d360MediaResolver, repoAssetResolver, repoAssetRoots, resolveAssetUrl, SITE_BRANDING_PAGE } from './assets/manifest.js';
 import { assetFoldersElsewhere, s3StorageFromEnv, s3StorageProblems, type AssetProviderOptions } from './assets/providers.js';
 import { assertAssetsHosted, runAssetsStage, UnhostedAssetsError, type AssetsStageResult } from './assets/stage.js';
 import { runGates, canonicalHash, gateSatisfied, previewPushBlockers, releaseBlockers, waivedExactnessGates, type GateResult, type SourceEvidence } from './verify/gates.js';
@@ -113,7 +113,8 @@ import { cachedRenderer, openChromeSession, EXPAND_INTERACTIVE } from './verify/
 import { runResponsiveGate, sampleRoutes } from './verify/responsive.js';
 import { authoredContentSnapshot, fidelityEqual, firstFidelityDifference, renderedDocSnapshot } from './verify/fidelity.js';
 import { unconvertedFidelityRecord, writeFidelityRecords, type FidelityRecord } from './verify/fidelity-records.js';
-import { remoteOrg, writeMigrationBranch } from './write/migration-branch.js';
+import { allowedOrgKey, MigrationBranchExistsError, originRemote, remoteOrg, writeMigrationBranch } from './write/migration-branch.js';
+import { readEditedYaml } from './session/edited-files.js';
 import { writeGates, writeReviewQueue, writeSummary, writePlatformGaps, readDecisions, writeConnectionSummary, type RunProvenance } from './report/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -227,11 +228,10 @@ function inlineSnippetBodies(doc: DocIR, snippets: Array<{ token: string; body: 
 /** A platform's own rules, then the generic ones every platform falls back to. */
 function mappingPaths(platform: string): string[] {
   const skill = (name: string) => join(PLUGIN_ROOT, 'skills', `migrate-${name}-to-documentation-ai`, 'mappings');
-  const out: string[] = [];
-  const own = join(skill(platform), `${platform}.yaml`);
-  if (existsSync(own)) out.push(own);
-  out.push(join(skill('generic'), 'generic.yaml'));
-  return out;
+  // A platform with a skill of its own keeps its table there; the generic skill keeps the tables of
+  // the platforms it serves (Fern). generic.yaml applies to every platform after its own table.
+  const candidates = [join(skill(platform), `${platform}.yaml`), join(skill('generic'), `${platform}.yaml`), join(skill('generic'), 'generic.yaml')];
+  return [...new Set(candidates.filter((path) => existsSync(path)))];
 }
 
 
@@ -259,7 +259,7 @@ function sourceCanonicalHosts(workspace: string, seedUrl: string, profile: Scrap
 function readComponentPlan(workspace: string): Record<string, ComponentPlanEntry> {
   const p = join(workspace, 'plan', 'component-plan.yaml');
   if (!existsSync(p)) return {};
-  const y = parseYaml(readFileSync(p, 'utf8')) as { components: Array<ComponentPlanEntry & { signature?: { hash?: string } }> };
+  const y = readEditedYaml<{ components: Array<ComponentPlanEntry & { signature?: { hash?: string } }> }>(p);
   const out: Record<string, ComponentPlanEntry> = {};
   // the engine looks entries up by the full signature hash recorded in the plan
   for (const c of y.components ?? []) if (c.signature?.hash) out[c.signature.hash] = c;
@@ -271,6 +271,18 @@ function readComponentPlan(workspace: string): Record<string, ComponentPlanEntry
  * What the source states about how it presents itself, read from bytes the workspace already holds:
  * the home page a live capture froze, or the configuration file of a repository source. No request.
  */
+/**
+ * The file the site's logo and favicon are named in, as their page source. A repository states them
+ * as paths relative to its configuration (fern/docs.yml, docs.json), so they resolve against that file
+ * like a page's images do; a live site states them as addresses.
+ */
+function brandingSource(workspace: string, session: Session, tree: Tree): string {
+  if (session.source.kind !== 'repo') return session.source.location;
+  if (tree.platform === 'fern') return existsSync(join(frozenRootPath(workspace), 'fern', 'docs.yaml')) ? 'fern/docs.yaml' : 'fern/docs.yml';
+  if (tree.platform === 'mintlify') return existsSync(join(frozenRootPath(workspace), 'docs.json')) ? 'docs.json' : 'mint.json';
+  return 'index.md';
+}
+
 function detectSiteBranding(workspace: string, session: Session, tree: Tree): SiteBranding | undefined {
   if (session.source.kind === 'url') {
     const seed = session.source.location.replace(/\/$/, '');
@@ -286,6 +298,13 @@ function detectSiteBranding(workspace: string, session: Session, tree: Tree): Si
       if (!existsSync(file)) continue;
       try { return mintlifyBranding(JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>); } catch { return undefined; }
     }
+  }
+  // Fern states its title, colours, logo, favicon and top-bar links in docs.yml: read there, the
+  // repository's own files, rather than fetched from a live site whose robots.txt may refuse them.
+  if (tree.platform === 'fern') {
+    const file = join(frozenRootPath(workspace), brandingSource(workspace, session, tree));
+    if (!existsSync(file)) return undefined;
+    try { return fernBranding(readEditedYaml<Record<string, unknown>>(file, { keepQuotes: true })); } catch { return undefined; }
   }
   return undefined;
 }
@@ -343,8 +362,10 @@ function flareSiteName(discovery: DiscoveryResult): string | undefined {
   return undefined;
 }
 
-/** The Documentation.AI renderer's sidebar container, used to check the deployed navigation. */
-const DAI_PREVIEW_NAV_SELECTOR = 'nav, aside, [role=navigation]';
+/** The Documentation.AI renderer's sidebar container (a documented `dai-*` hook), used to check the deployed navigation. */
+const DAI_PREVIEW_NAV_SELECTOR = '.dai-sidebar';
+/** The top bar's tab links: a tab that opens on its own page is drawn here and in no sidebar. */
+const DAI_PREVIEW_TOP_BAR_SELECTOR = '.dai-navbar-tabs';
 /** The rendered page's own content on a Documentation.AI preview: title, description and MDX body, without the breadcrumbs, feedback, prev/next and footer the theme puts around them. */
 const DAI_PREVIEW_CONTENT_SELECTORS = ['.page-title', '.page-description', '.mdx-container'];
 
@@ -405,6 +426,50 @@ function assertReadyToSend(workspace: string, s: Session, flag: '--push' | 'publ
   }
   if (!gateReport.pass) console.log('· sending the migration to create a preview; rendered-preview gates remain required before release');
 }
+
+/** The clone and git flows need git; the MCP flow (project, then publish) does not, so it is checked only where it is used. */
+function requireGit(flow: string): void {
+  try { execFileSync('git', ['--version'], { stdio: 'ignore' }); }
+  catch { fail(`${flow} needs git, and git is not installed here. Install it from https://git-scm.com/downloads and run the same command again, or deliver through the MCP flow instead (documentation-ai-migrate project, then publish), which needs no git`); }
+}
+
+/**
+ * The organisations `write` may push to. A migration may change how it is delivered on the way:
+ * started in the MCP flow, with no repository named at init, and then written to a clone. Naming the
+ * repository at write scopes it as init would have, to that repository's own organisation, and
+ * --allowed-orgs adds organisations to the list; both are recorded in plan/allowed-orgs.json.
+ */
+function writableOrganisations(workspace: string, named: string | undefined, extra: string): string[] {
+  const file = join(workspace, 'plan', 'allowed-orgs.json');
+  const recorded = existsSync(file) ? readJson<string[]>(file) : [];
+  const allowed = [...recorded];
+  const owner = !allowed.length && named ? remoteOrg(named) : null;
+  if (owner) {
+    allowed.push(`${owner.host}/${owner.org}`);
+    console.log(`  · this migration had no repository until now: it may write only to ${owner.host}/${owner.org}, the organisation of ${named}`);
+  }
+  for (const org of extra.split(',').map((entry) => entry.trim()).filter(Boolean)) {
+    if (!allowed.some((entry) => allowedOrgKey(entry) === allowedOrgKey(org))) allowed.push(org);
+  }
+  if (allowed.length !== recorded.length) writeJson(file, allowed);
+  return allowed;
+}
+
+/** A new migration id for a delivery that must not reuse the last one's branch; the earlier branch stays as it is. */
+function takeRevision(workspace: string, s: Session, reason: string): void {
+  const previous = s.migrationId;
+  Object.assign(s, recordRevision(s, reason, newMigrationId()));
+  writeSession(workspace, s);
+  ok(`revision ${s.migrationId} supersedes ${previous}: ${reason}; the earlier branch and its preview are left untouched`);
+}
+
+/** The MCP flow published (or began publishing) this migration's working version under its default name. */
+function publishedThroughMcp(workspace: string, s: Session): boolean {
+  const name = `migration/${s.migrationId}`;
+  const progress = join(workspace, 'report', 'mcp-publish.json');
+  return s.stages.publish?.note?.split('@')[0] === name || (existsSync(progress) && readJson<{ branch?: string }>(progress).branch === name);
+}
+
 async function main() {
   switch (cmd) {
     case 'init': {
@@ -418,6 +483,7 @@ async function main() {
       // The clone flow: the customer has cloned the repository Documentation.AI created for their
       // project and migrates into it. Its `origin` is the remote, their own git credentials push,
       // and the platform builds a preview of the pushed branch by itself - no API key is involved.
+      if (v.clone || v.remote) requireGit(v.clone ? 'init --clone' : 'init --remote');
       const cloneDir = v.clone ? resolve(v.clone) : undefined;
       let cloneRemote: string | undefined;
       if (cloneDir) {
@@ -461,7 +527,7 @@ async function main() {
       };
       writeSession(workspace, session);
       writeJson(join(workspace, 'plan', 'allowed-orgs.json'), allowedOrgs);
-      ok(`session ${session.migrationId} at ${workspace} (landing: ${session.target.landing}; assets: ${session.target.assetProvider ?? 'local'}; remote: ${session.target.repoRemote ?? 'not set'}; fidelity: ${session.fidelityMode}; migrator: ${migrator.gitSha.slice(0, 12)}${migrator.dirty ? ' with uncommitted changes' : ''})`);
+      ok(`session ${session.migrationId} at ${workspace} (landing: ${session.target.landing}; assets: ${session.target.assetProvider ?? 'local'}; remote: ${session.target.repoRemote ?? 'not set'}; fidelity: ${session.fidelityMode}; migrator: ${shortMigrator(migrator)})`);
       break;
     }
     case 'fingerprint': {
@@ -482,7 +548,7 @@ async function main() {
       const workspace = ws(); const s = readSession(workspace);
       if (existsSync(sourceManifestPath(workspace)) && !v.offline) fail('source evidence is already frozen; review the existing tree, or re-derive it from those frozen bytes with --offline after "rebase"');
       if (v.offline) {
-        if (s.source.kind !== 'url') fail('--offline re-derives a live-site capture; a repository or export source is already local, so discover it in a new workspace');
+        if (s.source.kind === 'export') fail('--offline re-derives a live-site or repository capture; an export is read whole by discover, so discover it in a new workspace');
         // A completed acquisition is the precondition: it exists only where discover produced a tree
         // to acquire, and it is what --offline re-reads. The last discover's own status is not,
         // because a re-derivation that failed certification must stay retryable — stranding the
@@ -513,23 +579,26 @@ async function main() {
         writeJson(join(workspace, 'inventory', 'snippets.json'), [...exp.snippetTokens.entries()].map(([token, count]) => ({ token, count, body: null, resolution: 'blocked' })));
       } else {
         const url = v.url ?? s.source.location;
-        if (!/^https?:\/\//.test(url) && existsSync(url)) {
+        if (!/^https?:\/\//.test(url) && (existsSync(url) || (v.offline && s.source.kind === 'repo'))) {
           const root = frozenRootPath(workspace);
-          frozen = freezeDirectory(resolve(url), root);
+          // Offline, the repository is the copy discover froze: re-read with this migrator, never copied
+          // again, so a plugin that updated mid-migration rebuilds the tree from the same bytes.
+          if (v.offline) sourceManifest = requireSourceManifest(workspace, s.hashes.sourceManifest);
+          else frozen = freezeDirectory(resolve(url), root);
           const meta: Record<string, unknown> = { platform: platform ?? 'generic', root };
           // One registry decides what a repository is, reads it, and states its navigation, so
           // discovery and verification cannot disagree about the platform. A platform the operator
           // named wins over what the files look like.
           const adapter = adapterFor(root, platform);
           if (adapter) {
-            sourceManifest = nativeSourceManifest({ ...captureContext, platform: adapter.platform, kind: 'repo', root, freeze: frozen });
+            sourceManifest ??= nativeSourceManifest({ ...captureContext, platform: adapter.platform, kind: 'repo', root, freeze: frozen! });
             const read = adapter.read(root);
             tree = read.tree;
             Object.assign(meta, read.meta);
             for (const note of read.notes) console.log(`· ${note}`);
             ok(read.summary);
           } else {
-            sourceManifest = nativeSourceManifest({ ...captureContext, kind: 'repo', root, freeze: frozen });
+            sourceManifest ??= nativeSourceManifest({ ...captureContext, kind: 'repo', root, freeze: frozen! });
             tree = repoTree(root, platform ?? 'generic');
             ok(`${tree.pages.length} Markdown, MDX, and HTML pages discovered in the source repository (provisional groups from paths)`);
           }
@@ -743,6 +812,30 @@ async function main() {
       humanGate(1, 'scope and structure', `review ${join(workspace, 'plan', 'tree.yaml')} plus source-specific inventory; confirm pages, groups, order, versions and locales before acquisition/inventory`);
       break;
     }
+    case 'exclude': {
+      // Leaving published pages out of a migration, by the paths a person recognises (`blog/**`),
+      // recorded with who decided and why. The ids the decision must carry are the manifest's own,
+      // looked up here: copied by hand out of a JSON file, they were the step people got wrong.
+      const workspace = ws(); const s = readSession(workspace);
+      requireStages(s, 'discover');
+      const patterns = v.path ?? [];
+      const reason = (v.reason ?? '').trim(); const by = (v.by ?? '').trim();
+      if (!patterns.length || !reason || !by) fail('exclude needs --path "<file or glob>" (repeatable), --reason "<why>" and --by "<who decided>"');
+      const manifest = requireSourceManifest(workspace, s.hashes.sourceManifest);
+      const glob = (pattern: string): RegExp => new RegExp(`^${pattern.replace(/^\.?\//, '').replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\/?/g, '\u0000').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\u0000/g, '.*')}$`);
+      const matchers = patterns.map(glob);
+      const tree = readTree(workspace);
+      const byId = new Map(tree.pages.map((page) => [page.id, page]));
+      const chosen = manifest.pages.filter((page) => page.published && matchers.some((matcher) => matcher.test(page.location) || matcher.test(page.sourceId)));
+      if (!chosen.length) fail(`no published page matches ${patterns.join(', ')}; paths are as source-cache/source-manifest.json lists them (for a repository, the file path from its root)`);
+      const at = new Date().toISOString();
+      const recorded = recordScopeExclusions(workspace, chosen.map((page) => ({ pageId: page.pageId, sourceId: page.sourceId, reason, approvedBy: by, approvedAt: at })));
+      for (const page of chosen) { const entry = byId.get(page.pageId); if (entry) { entry.migrate = false; entry.reason = reason; } }
+      writeTree(workspace, tree);
+      ok(`${chosen.length} published page(s) left out by ${by} (${recorded} newly recorded in ${scopeDecisionsPath(workspace)}): ${chosen.slice(0, 5).map((page) => page.location).join(', ')}${chosen.length > 5 ? ', …' : ''}`);
+      console.log('  · the scope changed, so decision 1 is asked again: approve --gate 1 --by "<who>"');
+      break;
+    }
     case 'approve': {
       // A human gate is a decision about a specific state, so approving pins that state. Changing
       // it afterwards leaves the approval behind, and the next stage says which file moved.
@@ -752,6 +845,17 @@ async function main() {
       const by = (v.by ?? '').trim();
       if (!by) fail('--by is required: record who approved this gate');
       const number = gate as 1 | 2 | 3 | 4;
+      // A source whose sidebar lives in code this tool does not run (a Docusaurus sidebars module,
+      // Nextra's _meta modules) gives a tree built from its folders. The person who approves scope
+      // can also say that tree is the navigation, which exact mode then certifies as reviewed.
+      if (v['navigation-reviewed']) {
+        if (number !== 1) fail('--navigation-reviewed belongs to gate 1, where the tree is reviewed');
+        const tree = readTree(workspace);
+        if (['source-config', 'platform-metadata', 'dom-sidebar'].includes(tree.navigationSource ?? '')) fail(`the navigation was read from the source (${tree.navigationSource}); there is no inferred tree to record as reviewed`);
+        tree.navigationSource = 'manual';
+        writeTree(workspace, tree);
+        console.log(`  · ${by} reviewed plan/tree.yaml as this site's navigation`);
+      }
       const subjects = gateSubjects(workspace, number);
       if (!subjects.length) fail(`nothing to approve for gate ${number} (${GATE_NAMES[number]}): its files do not exist yet, so the stage before it has not run`);
       s.approvals = { ...s.approvals, [number]: { at: new Date().toISOString(), by, ...(v.note ? { note: v.note } : {}), pinned: pinGateSubjects(workspace, number) } };
@@ -783,7 +887,7 @@ async function main() {
       // captured OpenAPI graph are untouched, because no fix to this migrator can change them
       for (const key of ['snapshot', 'componentPlan', 'urlPlan', 'assetPlan', 'sitePlan', 'blockExclusions', 'scopeDecisions', 'canonicalOutput', 'convertInputs', 'convertOutput', 'previousConvertOutput'] as const) s.hashes[key] = undefined;
       for (const stage of ['inventory', 'plan', 'assets', 'convert', 'nav', 'verify', 'write', 'report']) {
-        if (s.stages[stage]) s.stages[stage] = { status: 'pending', at: new Date().toISOString(), note: `stale: rebased onto ${current.gitSha.slice(0, 12)}` };
+        if (s.stages[stage]) s.stages[stage] = { status: 'pending', at: new Date().toISOString(), note: `stale: rebased onto ${shortMigrator(current)}` };
       }
       writeSession(workspace, s);
       ok(`rebased onto ${describeMigrator(current)} (${drift.join('; ')})`);
@@ -897,7 +1001,7 @@ async function main() {
             // reads, and for them this is the file unchanged.
             const published = tree.platform === 'gitbook' ? unwrapPublishedMarkdown(raw, 'gitbook', { expectedDescription: p.description }) : { body: raw, title: undefined as string | undefined };
             const title = published.title ?? p.title;
-            docs.push(attachDefinitions(named(p.source, () => markdownToIr(published.body, { platform: tree.platform, file: p.source, pageId: p.id, title, resolveSnippet: tree.platform === 'mintlify' ? mintlifySnippetResolver(root) : undefined, codeMetaStrip: profile.codeMetaStrip })), definitions));
+            docs.push(attachDefinitions(named(p.source, () => markdownToIr(published.body, { platform: tree.platform, file: p.source, pageId: p.id, title, resolveSnippet: tree.platform === 'mintlify' ? mintlifySnippetResolver(root) : undefined, resolveFile: repoFileReader(root, file), codeMetaStrip: profile.codeMetaStrip })), definitions));
           }
           else {
             const ir = htmlToIr(raw, htmlAdapterOptions(profile, { platform: tree.platform, file: p.source }));
@@ -1079,7 +1183,7 @@ async function main() {
       const mappings = loadMappings(mappingPaths(tree.platform));
       const engine = new RulesEngine({ platform: tree.platform, mappings, ledger: new Ledger(join(workspace, 'plan')), log: new DecisionLog(join(workspace, 'plan')) });
       const planPath = join(workspace, 'plan', 'component-plan.yaml');
-      const existing = existsSync(planPath) ? (parseYaml(readFileSync(planPath, 'utf8')) as { components: ComponentPlanEntry[] }).components : [];
+      const existing = existsSync(planPath) ? readEditedYaml<{ components: ComponentPlanEntry[] }>(planPath).components : [];
       const byCluster = new Map(existing.map((e) => [e.cluster, e]));
       const components = clusters.map((c) => {
         // A decision the operator made is kept; a derivation is recomputed against current rules.
@@ -1148,9 +1252,9 @@ async function main() {
       // The logo and favicon the site plan carries are hosted with the pages' own media, so nothing
       // the migrated site shows is served from the host being left.
       const siteImages = sitePlanImages(readSitePlan(workspace));
-      if (siteImages.length) docs.push({ pageId: SITE_BRANDING_PAGE, platform: readTree(workspace).platform, source: s.source.location, frontmatter: { title: 'Site branding' }, children: siteImages.map((url, index) => ({ id: `${SITE_BRANDING_PAGE}:${index}`, type: 'image' as const, url, alt: '' })) });
+      if (siteImages.length) docs.push({ pageId: SITE_BRANDING_PAGE, platform: readTree(workspace).platform, source: brandingSource(workspace, s, readTree(workspace)), frontmatter: { title: 'Site branding' }, children: siteImages.map((url, index) => ({ id: `${SITE_BRANDING_PAGE}:${index}`, type: 'image' as const, url, alt: '' })) });
       const assetPlanPath = join(workspace, 'plan', 'assets.yaml');
-      const assetPlan = existsSync(assetPlanPath) ? (parseYaml(readFileSync(assetPlanPath, 'utf8')) as { provider?: string }) : {};
+      const assetPlan = existsSync(assetPlanPath) ? readEditedYaml<{ provider?: string }>(assetPlanPath) : {};
       const provider = v.provider ?? assetPlan.provider ?? s.target.assetProvider ?? 'local';
       if (!['none', 'local', 's3', 'dai-api', 'dai-mcp'].includes(provider)) fail(`unsupported asset provider ${provider}`);
       // Asset CDNs are often cross-host. The Fetcher still rejects private
@@ -1161,6 +1265,10 @@ async function main() {
         requireSourceManifest(workspace, s.hashes.sourceManifest);
         const exp = readD360Export(frozenRootPath(workspace));
         localResolver = d360MediaResolver(exp.mediaDir);
+      } else if (s.source.kind === 'repo') {
+        // a repository's images are files in it, read from the frozen copy discover made
+        const sourceManifest = requireSourceManifest(workspace, s.hashes.sourceManifest);
+        localResolver = repoAssetResolver(sourceManifest.frozenRoot ? frozenRootPath(workspace) : resolve(s.source.location), repoAssetRoots(readTree(workspace).platform));
       }
       // No image hosting (no API key, no bucket) is a normal state for someone migrating into a clone
       // of their own project. The pictures then stay at the addresses that serve them today, which a
@@ -1199,7 +1307,7 @@ async function main() {
           client: mcpClient,
           ...(apiKey ? {} : { project: { organizationId: s.target.organizationId!, documentationId: s.target.documentationId! } }),
         };
-        console.log(`  · hosting pictures in ${s.target.projectName ? `"${s.target.projectName}"` : 'the project this key belongs to'} through the Authoring MCP server${providerOptions.dai ? '; files it cannot fetch are uploaded from the captured copy with the API key' : ''}`);
+        console.log(`  · hosting pictures in ${s.target.projectName ? `"${s.target.projectName}"` : 'the project this key belongs to'} through the Authoring MCP server${providerOptions.dai ? '; files it cannot fetch are uploaded from the captured copy with the API key' : '; files no public address serves go through your project\'s upload page'}`);
       }
       if (provider === 's3') {
         // Hosted pictures are filed per project. In the MCP flow the project is an account's choice,
@@ -1255,7 +1363,7 @@ async function main() {
       const unmatchedExclusions = unmatchedBlockExclusions(docs, blockExclusions);
       if (unmatchedExclusions.length) fail(`plan/block-exclusions.yaml names nodes that are not in the snapshot: ${unmatchedExclusions.map((e) => `${e.pageId}:${e.nodeId}`).join(', ')}`);
       const plan = readComponentPlan(workspace);
-      const assetsPlan = existsSync(join(workspace, 'plan', 'assets.yaml')) ? (parseYaml(readFileSync(join(workspace, 'plan', 'assets.yaml'), 'utf8')) as { iframeHosts?: string[] }) : {};
+      const assetsPlan = existsSync(join(workspace, 'plan', 'assets.yaml')) ? readEditedYaml<{ iframeHosts?: string[] }>(join(workspace, 'plan', 'assets.yaml')) : {};
       // fresh ledger and log per convert run
       for (const f of ['ledger/dispositions.jsonl', 'logging/decisions.jsonl']) { const p = join(workspace, f); if (existsSync(p)) writeFileSync(p, ''); }
       const ledger = new Ledger(workspace); const log = new DecisionLog(workspace, !!v['log-originals']);
@@ -1481,7 +1589,7 @@ async function main() {
       const assetManifest = readManifest(workspace);
       const exactOutput = (s.fidelityMode ?? 'exact') === 'exact';
       const hosted = (sourceUrl: string): string | undefined => {
-        const key = resolveAssetUrl(sourceUrl, s.source.location);
+        const key = resolveAssetUrl(sourceUrl, brandingSource(workspace, s, tree));
         const entry = assetManifest.entries[assetManifest.byUrl[key] ?? ''];
         if (entry?.excluded) return undefined;
         if (entry?.finalUrl && entry.status === 'ingested') return entry.finalUrl;
@@ -1519,17 +1627,18 @@ async function main() {
     case 'write': {
       const workspace = ws(); const s = readSession(workspace);
       requireStages(s, 'nav');
+      requireGit('write');
       // exact output never points at a source host: a manifest that lost a hosted URL since the assets stage refuses the branch
       if ((s.fidelityMode ?? 'exact') === 'exact') assertAssetsHosted(readManifest(workspace), 'write');
-      const remote = v.remote ?? s.target.repoRemote;
       // the customer's own clone (init --clone) is where the branch is built unless another checkout is named here
       const ownCheckout = v.repo ?? s.target.cloneDir;
       const repoDir = ownCheckout ? resolve(ownCheckout) : join(workspace, 'repo');
+      const remote = v.remote ?? s.target.repoRemote ?? (ownCheckout && existsSync(join(repoDir, '.git')) ? originRemote(repoDir) : undefined);
       if (!ownCheckout && !remote) fail('--repo <dir>, init --clone <dir>, or a remote (from init --remote or --remote here) is required');
       if (!ownCheckout) mkdirSync(repoDir, { recursive: true, mode: 0o700 }); // cloned by the writer on first use
       if (v['allow-lossy'] && !v.push) fail('--allow-lossy only changes what --push accepts; without --push no gate is consulted');
       if (v.push) assertReadyToSend(workspace, s, '--push', !!v['allow-lossy']);
-      const allowed = existsSync(join(workspace, 'plan', 'allowed-orgs.json')) ? readJson<string[]>(join(workspace, 'plan', 'allowed-orgs.json')) : [];
+      const allowed = writableOrganisations(workspace, remote, v['allowed-orgs']!);
       if (v.push && remote) {
         // cheap and side-effect free; turns a cryptic git failure after a full build into a one-line fix
         const probe = await probePushAccess(remote);
@@ -1542,12 +1651,19 @@ async function main() {
       if (v.revision !== undefined) {
         const reason = String(v.revision).trim();
         if (!reason) fail('--revision needs the reason this build supersedes the last push, e.g. --revision "the preview showed unlisted pages answering 404"');
-        const previous = s.migrationId;
-        Object.assign(s, recordRevision(s, reason, newMigrationId()));
-        writeSession(workspace, s);
-        ok(`revision ${s.migrationId} supersedes ${previous}: ${reason}; the earlier branch and its preview are left untouched`);
+        takeRevision(workspace, s, reason);
       }
-      const r = writeMigrationBranch({ repoDir, outputDir: join(workspace, 'output'), sessionId: s.migrationId, remote, allowedRemoteOrgs: allowed, push: !!v.push });
+      // The MCP flow publishes a working version under this same name; a git branch of that name
+      // beside it would reach the platform as the same working version.
+      else if (publishedThroughMcp(workspace, s)) takeRevision(workspace, s, `migration/${s.migrationId} is the working version publish made through the MCP flow; this git delivery is written beside it`);
+      const writeBranch = () => writeMigrationBranch({ repoDir, outputDir: join(workspace, 'output'), sessionId: s.migrationId, remote, allowedRemoteOrgs: allowed, push: !!v.push, replaceRepoContents: !!v['replace-repo-contents'] });
+      let r: ReturnType<typeof writeMigrationBranch>;
+      try { r = writeBranch(); }
+      catch (error) {
+        if (!(error instanceof MigrationBranchExistsError) || v.revision !== undefined) throw error;
+        takeRevision(workspace, s, `${error.branch} already exists in the repository, from an earlier delivery of this migration; this build is written beside it`);
+        r = writeBranch();
+      }
       s.target.repoRemote = remote ?? s.target.repoRemote; writeSession(workspace, s);
       markStage(workspace, 'write', 'done', `${r.branch}@${r.commit.slice(0, 8)}`);
       ok(`${r.branch} at ${r.commit.slice(0, 8)}${r.pushed ? ' (pushed)' : ' (not pushed; add --push)'}`);
@@ -1618,7 +1734,7 @@ async function main() {
         platform: tree.platform, mappings: loadMappings(mappingPaths(tree.platform)), plan: readComponentPlan(workspace),
         ledger: new Ledger(join(workspace, 'plan')), log: new DecisionLog(join(workspace, 'plan')), flareData: frozenNavigationData(workspace),
         iconLibrary: readSitePlan(workspace)?.iconLibrary,
-        iframeHosts: existsSync(join(workspace, 'plan', 'assets.yaml')) ? (parseYaml(readFileSync(join(workspace, 'plan', 'assets.yaml'), 'utf8')) as { iframeHosts?: string[] }).iframeHosts : undefined,
+        iframeHosts: existsSync(join(workspace, 'plan', 'assets.yaml')) ? readEditedYaml<{ iframeHosts?: string[] }>(join(workspace, 'plan', 'assets.yaml')).iframeHosts : undefined,
       });
       const sourceEvidence = buildSourceEvidence(workspace, tree);
       // The components a named person recorded a substitution for are read as what replaced them,
@@ -1709,8 +1825,9 @@ async function main() {
           {
             routes: writtenPagePaths(workspace, tree),
             assetUrls: new Map(Object.entries(manifest.byUrl).flatMap(([url, hash]) => { const final = manifest.entries[hash]?.finalUrl; return final ? [[url, final] as [string, string]] : []; })),
-            navigation: expectedSidebar(tree),
+            navigation: expectedSidebar(tree, new Set(Object.keys(readPlatformMeta(workspace).pageOpenapi ?? {}))),
             navSelector: DAI_PREVIEW_NAV_SELECTOR,
+            topBarSelector: DAI_PREVIEW_TOP_BAR_SELECTOR,
             contentSelectors: DAI_PREVIEW_CONTENT_SELECTORS,
             siteName: typeof readPlatformMeta(workspace).name === 'string' ? readPlatformMeta(workspace).name : undefined,
             render: renderPreview,
@@ -1795,6 +1912,19 @@ async function main() {
       break;
     }
     case 'mcp': {
+      // The block a host's configuration needs, with this machine's own paths in it: copied from a
+      // terminal it keeps its straight quotes, and nobody fills in a placeholder path by hand.
+      if (v['print-config'] !== undefined) {
+        const host = v['print-config'] || 'claude-desktop';
+        const launcher = join(PLUGIN_ROOT, 'packages', 'migrate-core', 'bin', 'documentation-ai-migrate.mjs');
+        // the absolute Node.js: a desktop app starts servers without the shell's PATH, so "node" may be missing or too old there
+        const server = { command: process.execPath, args: [launcher, 'mcp'] };
+        if (host === 'codex') console.log(`[mcp_servers.documentation-ai-migrate]\ncommand = ${JSON.stringify(server.command)}\nargs = ${JSON.stringify(server.args)}`);
+        else if (host === 'vscode') console.log(JSON.stringify({ servers: { 'documentation-ai-migrate': { type: 'stdio', ...server } } }, null, 2));
+        else if (host === 'claude-desktop' || host === 'cursor' || host === 'windsurf') console.log(JSON.stringify({ mcpServers: { 'documentation-ai-migrate': server } }, null, 2));
+        else fail(`--print-config takes claude-desktop, cursor, windsurf, vscode or codex; got ${host}`);
+        break;
+      }
       // The migrator as a local MCP server (stdio), for hosts without a shell of their own.
       await serveStdio({ pluginRoot: PLUGIN_ROOT, cliEntry: fileURLToPath(import.meta.url), version: CORE_VERSION });
       break;
@@ -1808,6 +1938,10 @@ async function main() {
       requireStages(s, 'nav');
       if ((s.fidelityMode ?? 'exact') === 'exact') assertAssetsHosted(readManifest(workspace), 'publish');
       assertReadyToSend(workspace, s, 'publish', !!v['allow-lossy']);
+      // a git branch write made under this name would reach the platform as this same working version
+      if (!v.branch && s.stages.write?.status === 'done' && s.stages.write.note?.startsWith(`migration/${s.migrationId}@`)) {
+        takeRevision(workspace, s, `migration/${s.migrationId} is the git branch write made; this delivery through the MCP flow is published beside it`);
+      }
       const branch = v.branch?.trim() || `migration/${s.migrationId}`;
       if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch.startsWith('-') || branch.includes('..')) fail(`--branch ${branch} is not a usable working-version name: letters, digits, dot, dash, underscore and slash only`);
       const progressFile = join(workspace, 'report', 'mcp-publish.json');

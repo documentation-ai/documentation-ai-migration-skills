@@ -135,10 +135,13 @@ export function siteLinksFor(tree: Tree, options: { unmigrated?: 'keep' | 'sourc
     const fromFilenames = !/^https?:\/\//i.test(page.source);
     addRoute(page.oldPath, page.newPath, fromFilenames);
     for (const alias of page.aliases ?? []) addRoute(alias, page.newPath, fromFilenames);
+    // A repository page is linked by its file as often as by its address (`./create-a-page.mdx`, a
+    // Docusaurus or GitBook author's usual link). The file never takes an address another page has.
+    if (fromFilenames) for (const candidate of pathCandidates(`/${page.source.replace(/^\/+/, '')}`, true)) routes[candidate] ??= page.newPath;
   }
   const live = tree.pages.find((page) => /^https?:\/\//i.test(page.source))?.source;
   const origin = live ? new URL(live).origin : undefined;
-  const listed = [...(options.sourcePages ?? []), ...tree.pages.flatMap((page) => [page.oldPath, ...(page.aliases ?? [])])];
+  const listed = [...(options.sourcePages ?? []), ...tree.pages.flatMap((page) => [page.oldPath, ...(page.aliases ?? []), ...(/^https?:\/\//i.test(page.source) ? [] : [`/${page.source.replace(/^\/+/, '')}`])])];
   const sourcePages = [...new Set(listed.filter((path): path is string => !!path).flatMap((path) => pathCandidates(pathOf(path), !live)))];
   const hosts = origin ? [...new Set([new URL(origin).hostname, ...(options.hosts ?? []).map((host) => (/^https?:\/\//i.test(host) ? new URL(host).hostname : host))].map((host) => host.toLowerCase()))] : [];
   // From the tree's own pages, not the sitemap: a site's sitemap lists the marketing pages beside

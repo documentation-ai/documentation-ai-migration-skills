@@ -88,13 +88,22 @@ export const NATIVE_ADAPTERS: readonly NativeSourceAdapter[] = [
       const repo = readFernRepo(root);
       return {
         tree: repo.tree,
-        meta: { platform: 'fern', missing: repo.missing, unreferenced: repo.unreferenced, apiSections: repo.apiSections },
+        meta: {
+          platform: 'fern', ...(repo.name ? { name: repo.name } : {}), missing: repo.missing, unreferenced: repo.unreferenced, links: repo.links,
+          // each API section is a group the platform fills from its spec, captured by acquire like any other
+          openapi: repo.apiSections.map(({ groupPath, spec, version, hiddenApis }) => ({ groupPath, spec, ...(version ? { version } : {}), ...(hiddenApis ? { hiddenApis } : {}) })),
+          redirects: { exact: repo.redirects.exact, wildcard: repo.redirects.wildcard },
+        },
         notes: [
-          ...(repo.missing.length ? [`${repo.missing.length} page(s) named in fern/docs.yml are not in the repository`] : []),
+          ...(repo.missing.length ? [`${repo.missing.length} entr(ies) named in fern/docs.yml are not in the repository: ${repo.missing.slice(0, 3).join(', ')}`] : []),
           ...(repo.unreferenced.length ? [`${repo.unreferenced.length} file(s) under fern/ are in no navigation entry; Fern does not publish them either`] : []),
-          ...(repo.apiSections.length ? [`${repo.apiSections.length} API reference section(s); their specs are captured by the OpenAPI stage`] : []),
+          ...repo.apiSections.map((section) => `API reference "${section.title}": ${section.endpoints} endpoint page(s), built by Documentation.AI from ${section.spec}; their old addresses redirect to the new pages`),
+          ...repo.apiNotes,
+          ...(repo.redirects.exact.length || repo.redirects.wildcard.length ? [`${repo.redirects.exact.length + repo.redirects.wildcard.length} redirect(s) carried over (fern/docs.yml redirects and old endpoint addresses)`] : []),
+          ...repo.redirects.skipped.map((rule) => `redirect ${rule.source} is not carried: ${rule.reason}`),
+          ...(repo.links.length ? [`${repo.links.length} navigation link(s) to other sites (${repo.links.slice(0, 3).map((link) => link.title).join(', ')}); they are not pages and are not migrated`] : []),
         ],
-        summary: `${repo.tree.pages.length} pages from fern/docs.yml; ${repo.missing.length} missing, ${repo.unreferenced.length} unreferenced`,
+        summary: `${repo.tree.pages.length} pages from fern/docs.yml; ${repo.apiSections.length} API reference section(s) with ${repo.apiSections.reduce((sum, section) => sum + section.endpoints, 0)} endpoints; ${repo.missing.length} missing, ${repo.unreferenced.length} unreferenced`,
       };
     },
     navigationWitness: (root) => readFernRepo(root).tree.navigation,

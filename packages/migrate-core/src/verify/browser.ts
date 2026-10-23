@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { isHtmlChromeNode, type GateResult } from './gates.js';
 import { assertPublicHost } from '../scrape/fetcher.js';
-import { find, findAll, parseHtml, type Dom } from '../ir/from-html.js';
+import { find, findAll, parseHtml, type Dom, type El } from '../ir/from-html.js';
 import { inlineText, walkBlocks, type Block, type DocIR, type Inline } from '../ir/types.js';
 import { mapConcurrentOrdered } from './concurrency.js';
 
@@ -222,6 +222,61 @@ function normaliseVisible(value: string): string {
   return value.replace(/\u00a0/g, ' ').replace(/\u200b/g, '').replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 }
 
+/** A link a navigation surface draws: the label a reader sees and the preview path it opens. */
+interface NavigationLink { label: string; path?: string }
+
+/**
+ * The preview path a link opens, comparable with a written route: decoded, without query,
+ * fragment or trailing slash. Undefined for a link that leaves the preview.
+ */
+function previewPath(href: string, base: string): string | undefined {
+  try {
+    const url = new URL(href, base);
+    if (url.origin !== new URL(base).origin) return undefined;
+    let path = url.pathname;
+    try { path = decodeURI(path); } catch { /* keep the path as served */ }
+    return path.replace(/\/+$/, '') || '/';
+  } catch {
+    return undefined;
+  }
+}
+
+function navigationLinks(container: El, pageUrl: string): NavigationLink[] {
+  return findAll(container, 'a[href]')
+    .map((anchor) => ({ label: normaliseVisible(visibleText(anchor)), path: previewPath(anchor.attribs.href ?? '', pageUrl) }))
+    .filter((link) => link.label || link.path);
+}
+
+/**
+ * Navigation placements no rendered surface draws, as "label placed n×, shown m×".
+ *
+ * A placement is drawn when links open its page as often as the navigation places it there, or,
+ * where links cannot be compared, when its label is shown that often. Either is a reader finding
+ * the page; only neither is a loss. The label alone failed pages the platform draws under another
+ * name: demo-64's "Developer Platform" opens from a tab named "Home".
+ */
+function undrawnPlacements(expected: readonly ExpectedNavigationEntry[], links: readonly NavigationLink[], previewUrl: string): string[] {
+  const tally = (values: Array<string | undefined>): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const value of values) if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+    return counts;
+  };
+  const pathOf = (entry: ExpectedNavigationEntry): string | undefined => (entry.route === undefined ? undefined : previewPath(routeUrl(previewUrl, entry.route), previewUrl));
+  const linkedPaths = tally(links.map((link) => link.path));
+  const shownLabels = tally(links.map((link) => link.label));
+  const placedPaths = tally(expected.map(pathOf));
+  const placedLabels = tally(expected.map((entry) => normaliseVisible(entry.label)));
+  const undrawn = new Set<string>();
+  for (const entry of expected) {
+    const path = pathOf(entry);
+    const label = normaliseVisible(entry.label);
+    const linked = path !== undefined && (linkedPaths.get(path) ?? 0) >= (placedPaths.get(path) ?? 0);
+    const shown = !!label && (shownLabels.get(label) ?? 0) >= (placedLabels.get(label) ?? 0);
+    if (!linked && !shown && label) undrawn.add(label);
+  }
+  return [...undrawn].map((label) => `${JSON.stringify(label)} placed ${placedLabels.get(label) ?? 0}\u00d7, shown ${shownLabels.get(label) ?? 0}\u00d7`);
+}
+
 /** One rendered route, judged against the source it was migrated from. */
 export interface PreviewRouteResult {
   route: string;
@@ -236,8 +291,12 @@ export interface PreviewRouteResult {
   accepted?: { by: string; reason: string };
 }
 
-/** Ordered sidebar the preview must render: group labels outermost first, then the page labels under each. */
-export interface ExpectedNavigationEntry { groupPath: string[]; label: string }
+/**
+ * Ordered sidebar the preview must render: group labels outermost first, then the page labels under
+ * each. `route` is the page's written path, so an entry the platform draws under another label (a tab
+ * named "Home" that opens "Developer Platform", a method pill before an operation) is still found.
+ */
+export interface ExpectedNavigationEntry { groupPath: string[]; label: string; route?: string }
 
 export interface BrowserContentOptions {
   render?: PageRenderer;
@@ -259,6 +318,8 @@ export interface BrowserContentOptions {
   navigation?: ExpectedNavigationEntry[];
   /** Selector for the rendered navigation; the check is skipped, and reported, when the target platform declares none. */
   navSelector?: string;
+  /** Selector for the top bar's section links (tabs). A page the top bar opens is drawn, even though no sidebar lists it. */
+  topBarSelector?: string;
   siteName?: string;
   /** Selectors of the rendered page's own content (title, description, body), in page order; the platform chrome around them is not read. Default: the whole article. */
   contentSelectors?: string[];
@@ -675,11 +736,6 @@ export async function runBrowserContentGate(
 
     return { route, status: problems.length ? 'fail' : 'pass', problems, ...(advisories.length ? { advisories } : {}), ...(unexplained.length ? { residual: unexplained.join(' | ').slice(0, 500) } : {}) };
   });
-  // A finding a named person accepted stays on the record and stops failing the route.
-  for (const result of inspected) {
-    const acceptance = result.status === 'fail' ? opts.accepted?.get(result.route) : undefined;
-    if (acceptance) { result.status = 'pass'; result.accepted = acceptance; }
-  }
   routes.push(...inspected);
 
   // The sidebar and the site name are properties of the whole preview, checked once on the first route.
@@ -702,35 +758,37 @@ export async function runBrowserContentGate(
       if (nowhere.length) advisories.push(`the platform draws ${nowhere.length} navigation link(s) with no destination (/null): ${[...new Set(nowhere)].slice(0, 5).map((label) => JSON.stringify(label)).join(', ')}. These are link-only dropdown or menu items, written as the platform's schema states them; its renderer needs the fix`);
       if (opts.navigation?.length) {
         if (!opts.navSelector) problems.push('the target platform declares no navigation selector, so the rendered sidebar cannot be checked');
-        else if (!find(root, opts.navSelector)) problems.push(`no rendered navigation matched ${opts.navSelector}`);
         else {
           // A tabbed site shows one tab's pages at a time, so no single route's sidebar lists the
           // whole navigation: the demo-64 root page sits in a tab of its own and rendered ["home"]
           // against all 41 source labels. Each distinct rendered sidebar is one such surface, so
           // they are read across the routes this gate already rendered (renders are cached, so
-          // reading them again costs nothing), deduplicated, and counted together.
+          // reading them again costs nothing), deduplicated, and counted together. The top bar is
+          // one more surface: a tab that opens on its own page is drawn there and in no sidebar.
           //
           // Counted, not merely present: a page the navigation places twice has to appear twice, or
           // one of its placements was lost. Summing over distinct sidebars keeps that, and keeps a
           // label a source states under several tabs - "Getting started" sits under three here -
           // from having to appear three times in any one of them.
-          const surfaces = new Map<string, string[]>();
+          const surfaces = new Map<string, NavigationLink[]>();
+          const readSurface = (pageUrl: string, container: El | undefined): void => {
+            const links = container ? navigationLinks(container, pageUrl) : [];
+            if (links.length) surfaces.set(links.map((link) => `${link.label}>${link.path ?? ''}`).join('|'), links);
+          };
           for (const entry of pages) {
             if (!entry.migrate || !entry.newPath) continue;
+            const pageUrl = routeUrl(previewUrl, entry.newPath);
             try {
-              const container = find(parseHtml(await render(routeUrl(previewUrl, entry.newPath))), opts.navSelector);
-              if (!container) continue;
-              const labels = findAll(container, 'a[href]').map((anchor) => normaliseVisible(visibleText(anchor))).filter(Boolean);
-              if (labels.length) surfaces.set(labels.join('|'), labels);
+              const rendered = parseHtml(await render(pageUrl));
+              readSurface(pageUrl, find(rendered, opts.navSelector));
+              if (opts.topBarSelector) readSurface(pageUrl, find(rendered, opts.topBarSelector));
             } catch { /* a route that will not load is already reported as that route's own failure */ }
           }
-          const shown = new Map<string, number>();
-          for (const labels of surfaces.values()) for (const label of labels) shown.set(label, (shown.get(label) ?? 0) + 1);
-          const wanted = new Map<string, number>();
-          for (const entry of opts.navigation) { const label = normaliseVisible(entry.label); if (label) wanted.set(label, (wanted.get(label) ?? 0) + 1); }
-          const missing = [...wanted.entries()].filter(([label, count]) => (shown.get(label) ?? 0) < count)
-            .map(([label, count]) => `${JSON.stringify(label)} placed ${count}\u00d7, shown ${shown.get(label) ?? 0}\u00d7`);
-          if (missing.length) problems.push(`sidebar labels differ: navigation placements the rendered sidebars never show: ${missing.slice(0, 12).join('; ')}`);
+          if (!surfaces.size) problems.push(`no rendered navigation matched ${opts.navSelector}${opts.topBarSelector ? ` or ${opts.topBarSelector}` : ''} on any route`);
+          else {
+            const missing = undrawnPlacements(opts.navigation, [...surfaces.values()].flat(), previewUrl);
+            if (missing.length) problems.push(`navigation entries no rendered sidebar or top bar shows: ${missing.slice(0, 12).join('; ')}`);
+          }
         }
       }
     } catch (error) {
@@ -739,6 +797,13 @@ export async function runBrowserContentGate(
     }
     // a row of its own only when the site as a whole was asked about, or has something to say
     if (opts.navigation?.length || opts.siteName || problems.length || advisories.length) routes.push({ route: '(site)', status: problems.length ? 'fail' : 'pass', problems, ...(advisories.length ? { advisories } : {}) });
+  }
+
+  // A finding a named person accepted stays on the record and stops failing the route. Applied
+  // after the site row exists, so a site-wide finding (`--route "(site)"`) can be accepted too.
+  for (const result of routes) {
+    const acceptance = result.status === 'fail' ? opts.accepted?.get(result.route) : undefined;
+    if (acceptance) { result.status = 'pass'; result.accepted = acceptance; }
   }
 
   const failed = routes.filter((entry) => entry.status === 'fail');

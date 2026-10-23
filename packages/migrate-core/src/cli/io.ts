@@ -5,12 +5,14 @@
  * directories created 0700, a stage's output directory emptied before it is rebuilt — so a stage
  * cannot quietly adopt different ones, and so the stage modules stay about their own work.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import type { DocIR } from '../ir/types.js';
+import { readEditedJson } from '../session/edited-files.js';
 
+/** Any workspace JSON: a person may have been asked to edit it, so a parse error names the file and curly quotes are read as meant. */
 export function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(path, 'utf8')) as T;
+  return readEditedJson<T>(path);
 }
 
 export function writeJson(path: string, value: unknown): void {
@@ -71,6 +73,22 @@ export function sourceFiles(root: string, dir = root, out: string[] = []): strin
     else if (/\.(?:md|mdx|html?)$/i.test(entry.name)) out.push(path);
   }
   return out.sort();
+}
+
+/**
+ * Reads a file a repository page names by path (`<Code src="./example.ts">`): relative to the page,
+ * or from the root (the repository's, then Fern's folder), and never outside the repository.
+ */
+export function repoFileReader(root: string, page: string): (path: string) => string | undefined {
+  return (path) => {
+    const clean = path.split(/[?#]/)[0];
+    const candidates = clean.startsWith('/') ? [join(root, clean), join(root, 'fern', clean)] : [resolve(dirname(page), clean)];
+    for (const file of candidates.map((candidate) => resolve(candidate))) {
+      if (!file.startsWith(root + '/')) continue;
+      try { if (statSync(file).isFile()) return readFileSync(file, 'utf8'); } catch { /* not this one */ }
+    }
+    return undefined;
+  };
 }
 
 export function canonicalHostsPath(workspace: string): string {

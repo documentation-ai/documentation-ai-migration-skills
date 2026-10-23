@@ -2,8 +2,9 @@
  * URL plan (plan/urls.yaml): preserve | restructure | hybrid, per page,
  * with reasons. Generates the redirect maps and the anchor map.
  */
-import { parse as parseYaml, stringify as toYaml } from 'yaml';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { stringify as toYaml } from 'yaml';
+import { readEditedYaml } from '../session/edited-files.js';
+import { writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Tree, TreePage } from '../nav/tree.js';
 import { pathFromTree } from '../nav/tree.js';
@@ -69,7 +70,7 @@ export function defaultUrlPlan(tree: Tree, opts: { mode?: UrlPlan['mode']; strip
       reason += '; root route -> index';
     }
     // versions and locales other than the default live under a prefix (documentation.json dimensions route them)
-    const prefix = [p.locale && p.locale !== tree.defaultLocale ? slugify(p.locale) : '', p.version && p.version !== tree.defaultVersion ? slugify(p.version) : ''].filter(Boolean).join('/');
+    const prefix = [p.locale && p.locale !== tree.defaultLocale ? slugify(p.locale) : '', p.version && p.version !== tree.defaultVersion ? (p.versionPath ?? slugify(p.version)) : ''].filter(Boolean).join('/');
     if (prefix && !candidate.startsWith(prefix + '/')) { candidate = `${prefix}/${candidate}`; reason += `; ${prefix} prefix`; }
     if (!candidate) { candidate = 'index'; reason += '; root page → index'; }
     planned.push({ id: p.id, old, candidate, reason });
@@ -115,7 +116,7 @@ export function extendUrlPlan(existing: UrlPlan, tree: Tree, opts: { mode?: UrlP
 
 export function readUrlPlan(workspace: string): UrlPlan | undefined {
   const p = join(workspace, 'plan', 'urls.yaml');
-  return existsSync(p) ? (parseYaml(readFileSync(p, 'utf8')) as UrlPlan) : undefined;
+  return existsSync(p) ? readEditedYaml<UrlPlan>(p) : undefined;
 }
 
 export function applyUrlPlan(tree: Tree, plan: UrlPlan): Tree {

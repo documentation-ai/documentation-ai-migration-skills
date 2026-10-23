@@ -16,7 +16,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use $migrate to migrate a documentation site onto Documentation.AI: ask me for the source, how to deliver it, the template and a workspace folder, then run the four-gate workflow."
+      "Use $migrate-generic-to-documentation-ai to migrate a documentation site onto Documentation.AI: ask me for the source, how to deliver it and the template, then run the four-gate workflow."
     ]
   },
   "skills": "./skills",

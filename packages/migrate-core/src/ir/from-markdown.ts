@@ -40,7 +40,24 @@ export interface MarkdownAdapterOptions {
   codeMetaStrip?: string[];
   /** Import ancestry prevents recursive snippets from exhausting the process. */
   snippetStack?: string[];
+  /**
+   * Reads a file the page names by path - Fern's `<Code src>` and `<Markdown src>` - resolved
+   * against the page's own file; undefined when the repository has no such file.
+   */
+  resolveFile?: (path: string) => string | undefined;
 }
+
+/** An MDX expression that holds only comments: an author's note, which no reader ever sees. */
+export function isCommentOnlyExpression(value: unknown): boolean {
+  return /^\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n\s*|$))+$/.test(String(value ?? ''));
+}
+
+/** The highlighting language a code file's extension names, for a file included whole (`<Code src>`). */
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx', mjs: 'javascript', cjs: 'javascript', py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
+  java: 'java', kt: 'kotlin', cs: 'csharp', php: 'php', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', yaml: 'yaml', json: 'json',
+  md: 'markdown', mdx: 'mdx', swift: 'swift', c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp', sql: 'sql', html: 'html', css: 'css', toml: 'toml', xml: 'xml', graphql: 'graphql',
+};
 
 /** Removes the platform's theming directives from a fence info string, returning undefined when nothing authored remains. */
 /** The character references fenceMeta writes, read back to the characters. */
@@ -178,7 +195,7 @@ function outsideCode(source: string, fn: (segment: string) => string): string {
 }
 
 export function preprocessPlatformMarkdown(source: string, platform: string): string {
-  const prepared = platform === 'gitbook' ? outsideCode(gitbookQuotedMarkdown(source), gitbookButtonGaps) : source;
+  const prepared = platform === 'gitbook' ? outsideCode(gitbookQuotedMarkdown(source), gitbookButtonGaps) : platform === 'docusaurus' ? docusaurusAdmonitions(source) : source;
   return outsideCode(prepared, (segment) => preprocessSegment(segment, platform));
 }
 
@@ -214,6 +231,8 @@ function gitbookButtonGaps(segment: string): string {
 
 function preprocessSegment(source: string, platform: string): string {
   let out = source.replace(/^(#{1,6}\s+.*?)\s*\{#([A-Za-z][\w:.-]*)\}\s*$/gm, (_, heading, id) => `${heading} ${ANCHOR_OPEN}${id}${ANCHOR_CLOSE}`);
+  // The same id written as an MDX comment, which Docusaurus 3 reads as the heading's id: an anchor, not an author's note
+  out = out.replace(/^(#{1,6}\s+.*?)\s*\{\/\*\s*#([A-Za-z][\w:.-]*)\s*\*\/\}\s*$/gm, (_, heading, id) => `${heading} ${ANCHOR_OPEN}${id}${ANCHOR_CLOSE}`);
   // GitBook's export states a heading's anchor itself: `## \u200bTitle <a href="#the-id" id="the-id"></a>`.
   // The empty anchor is the id the site gives the heading — and every deep link uses — and the
   // zero-width space is the editor's, not the author's. Read as text they became a heading whose
@@ -223,12 +242,36 @@ function preprocessSegment(source: string, platform: string): string {
   out = out.replace(/\{\{\s*snippet\.([^}]+?)\s*\}\}/g, (_, token) => `<snippetRef token="${quoteAttr(String(token).trim())}" />`);
   if (platform === 'gitbook') out = gitbookMdxCompatible(gitbookLiteralBraces(gitbookTableAsterisks(gitbookLiquidBlocks(gitbookMathBraces(gitbookHtmlCodeBlocks(gitbookLiteralAngles(gitbookEmojiShortcodes(out))))))));
   if (platform === 'readme') out = readmeMdxCompatible(out);
-  if (platform === 'docusaurus') {
-    out = out.replace(/^:::(note|tip|info|warning|danger|caution)(?:\s+([^\n]+))?\s*$/gm, (_, kind, title) => `<admonition kind="${kind}"${title ? ` title="${quoteAttr(String(title).trim())}"` : ''}>`);
-    out = out.replace(/^::: \s*$/gm, '</admonition>');
-    out = out.replace(/^:::\s*$/gm, '</admonition>');
-  }
   return out;
+}
+
+/**
+ * Docusaurus admonitions, outside fenced code, as the `<admonition>` elements the generic rule
+ * reads: `:::tip[Title]` (Docusaurus 3), `:::tip Title` (2), and nesting written with more colons.
+ * A closing `:::` closes only an admonition that opened: the 3 title syntax went unrecognised, its
+ * closer still became `</admonition>`, and the stray tag failed the official template's page.
+ */
+function docusaurusAdmonitions(source: string): string {
+  let fence: string | undefined;
+  let open = 0;
+  return source.split('\n').map((line) => {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+    if (marker) {
+      if (!fence) fence = marker;
+      else if (marker[0] === fence[0] && marker.length >= fence.length && /^ {0,3}(?:`{3,}|~{3,})[ \t]*$/.test(line)) fence = undefined;
+      return line;
+    }
+    if (fence) return line;
+    const opener = /^(\s*):{3,}(note|tip|info|warning|danger|caution|important|success)(?:\[([^\]\n]*)\])?(?:\{[^}\n]*\})?(?:[ \t]+(\S[^\n]*?))?\s*$/.exec(line);
+    if (opener) {
+      open++;
+      const title = (opener[3] ?? opener[4])?.trim();
+      return `${opener[1]}<admonition kind="${opener[2]}"${title ? ` title="${quoteAttr(title)}"` : ''}>`;
+    }
+    const closer = /^(\s*):{3,}\s*$/.exec(line);
+    if (closer && open > 0) { open--; return `${closer[1]}</admonition>`; }
+    return line;
+  }).join('\n');
 }
 
 const GITBOOK_BLOCK_TAGS = ['hint', 'tabs', 'tab', 'content-ref', 'stepper', 'step', 'columns', 'column', 'updates', 'update', 'code'];
@@ -541,7 +584,8 @@ function parseEscapingRejectedText(source: string, parse: (text: string, locatin
 const EXECUTABLE_SYNTAX = /=>|`|\bfunction\b|\bnew\b|\+\+|--|\.\.\./;
 
 function dataLiteral(text: string): unknown {
-  if (EXECUTABLE_SYNTAX.test(text)) return undefined;
+  // code is looked for outside string literals: a tab named "C++" is a word, not an increment
+  if (EXECUTABLE_SYNTAX.test(text.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '""'))) return undefined;
   try { return JSON.parse(text) as unknown; } catch { /* JS object syntax, tried next */ }
   // A JS data literal differs from JSON only in unquoted keys and single quotes; both are
   // rewritten before parsing, and a bare identifier anywhere else still fails the parse.
@@ -740,6 +784,9 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
         return value ? [{ ...base, type: 'inlineHtml', value }] : [];
       }
       case 'mdxTextExpression':
+        // a source's comment is the author's note to other authors: it never reached a reader, so it is
+        // not content. This tool's own output writes its markers as comments, read back as written.
+        if (isCommentOnlyExpression(node.value)) return opts.platform === 'dai' ? [{ ...base, type: 'inlineHtml', value: `{${String(node.value)}}` }] : [];
         return /^user\.[A-Za-z_][\w]*$/.test(String(node.value).trim())
           ? [{ ...base, type: 'inlineHtml', value: `{${String(node.value).trim()}}` }]
           : [{ ...base, type: 'inlineHtml', value: `{/* UNSUPPORTED EXPRESSION ${idOf(node, p)} */}` }];
@@ -765,12 +812,14 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
         // dropped here exactly as the block rule drops them when they stand alone.
         if (opts.platform === 'gitbook' && name === 'button' && ['ask', 'search'].includes(attribute('data-action') ?? '')) return [];
         if (['sup', 'sub', 'mark', 'u', 'small'].includes(name) && opts.platform !== 'dai') return [{ ...base, type: 'inlineHtml', value: `<${name}>${escapeHtmlText(plainText())}</${name}>` }];
-        if (opts.platform === 'mintlify') {
-          // Mintlify's inline components. An <Icon> is a glyph with no words and no target
+        if (opts.platform === 'mintlify' || opts.platform === 'fern') {
+          // Mintlify's and Fern's inline components. An <Icon> is a glyph with no words and no target
           // equivalent: decoration the page loses. A <Badge> keeps its text as the badge span the
           // block rule writes. A <Tooltip tip="…"> keeps its text, and the tip as the title a browser
           // shows on hover, which is what the reader had.
           if (node.name === 'Icon') return [];
+          // a Fern button in a sentence is the link it opens, drawn larger
+          if (node.name === 'Button' && attribute('href')) return [{ ...base, type: 'link', url: attribute('href')!, children: inline(node.children ?? [], p) }];
           if (node.name === 'Badge') return [{ ...base, type: 'inlineHtml', value: `<span className="dai-mig-badge">${escapeHtmlText(plainText())}</span>` }];
           if (node.name === 'Tooltip') {
             const tip = attribute('tip');
@@ -1071,6 +1120,72 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
     return sources.length ? { ...image, sources: [...new Set([...(image.sources ?? []), ...sources])] } : image;
   };
 
+  /**
+   * Fern components that state their content another way: a file included whole (`<Code src>`,
+   * `<Markdown src>`), a title given to the code block inside (`<CodeBlock title>`), and a button,
+   * which is a link drawn larger. Read as that content, so the page states it rather than a
+   * component no rule can carry.
+   */
+  const fernFlow = (node: any, path: number[]): Block[] | undefined => {
+    const attr = (key: string): string | undefined => {
+      const found = (node.attributes ?? []).find((a: any) => a.type === 'mdxJsxAttribute' && a.name === key);
+      return typeof found?.value === 'string' ? found.value : undefined;
+    };
+    const id = idOf(node, path);
+    const src = attr('src');
+    if (node.name === 'Code' && src && opts.resolveFile) {
+      const body = opts.resolveFile(src);
+      if (body === undefined) return undefined;
+      const name = src.split(/[?#]/)[0].split('/').pop() ?? src;
+      const lang = attr('language') ?? attr('lang') ?? LANGUAGE_BY_EXTENSION[name.split('.').pop()?.toLowerCase() ?? ''];
+      const title = attr('title') ?? name;
+      return [{ id, src: srcOf(node), type: 'code', ...(lang ? { lang } : {}), meta: `title="${title.replace(/"/g, "'")}"`, value: body.replace(/\r\n/g, '\n').replace(/\n$/, '') }];
+    }
+    if (node.name === 'Markdown' && src && opts.resolveFile) {
+      const body = opts.resolveFile(src);
+      if (body === undefined) return undefined;
+      const stack = opts.snippetStack ?? [];
+      if (stack.includes(src)) throw new Error(`${opts.file}: recursive <Markdown src> include ${[...stack, src].join(' -> ')}`);
+      return markdownToIr(splitFrontmatter(body, src).body, { ...opts, file: `${opts.file}::${id}::${src}`, snippetStack: [...stack, src] }).children;
+    }
+    if (node.name === 'CodeBlock') {
+      const kids = blocks(node.children ?? [], [...path, 0]);
+      const title = attr('title');
+      if (kids.length === 1 && kids[0].type === 'code') {
+        const code = kids[0];
+        return [title && !/\btitle=/.test(code.meta ?? '') ? { ...code, meta: `${code.meta ? `${code.meta} ` : ''}title="${title.replace(/"/g, "'")}"` } : code];
+      }
+      return undefined;
+    }
+    if (node.name === 'Button') {
+      const href = attr('href');
+      const text = inline(node.children ?? [], [...path, 0]);
+      const label = text.length ? text : [{ id: `${id}:t`, type: 'text' as const, value: href ?? '' }];
+      return [{ id, src: srcOf(node), type: 'paragraph', children: href ? [{ id: `${id}:link`, type: 'link', url: href, children: label }] : label }];
+    }
+    return undefined;
+  };
+
+  /**
+   * Nextra's `<Tabs items={['npm', 'pnpm']}>` titles its `<Tabs.Tab>` children from the parent's
+   * list. Read here as the titled tabs every other source writes, so a tab's title is a prop of the
+   * tab, as the target states it, rather than an index into its parent's list.
+   */
+  const nextraFlow = (node: any, path: number[]): Block[] | undefined => {
+    if (node.name !== 'Tabs') return undefined;
+    const element = jsxElement(node, path);
+    if (element.type !== 'component') return undefined;
+    let items: unknown;
+    try { items = typeof element.props.items === 'string' ? JSON.parse(element.props.items) : undefined; } catch { return undefined; }
+    if (!Array.isArray(items)) return undefined;
+    const labels = items.map((item) => (typeof item === 'string' ? item : item && typeof item === 'object' && typeof (item as { label?: unknown }).label === 'string' ? (item as { label: string }).label : undefined));
+    const tabs = element.children.filter((child) => child.type === 'component' && child.name === 'Tabs.Tab');
+    if (tabs.length !== element.children.length || tabs.length > labels.length || labels.slice(0, tabs.length).some((label) => !label)) return undefined;
+    const { items: _items, ...props } = element.props;
+    const children = tabs.map((tab, index) => ({ ...(tab as Extract<Block, { type: 'component' }>), name: 'Tab', props: { ...(tab as Extract<Block, { type: 'component' }>).props, title: labels[index]! } }));
+    return [{ ...element, props, children }];
+  };
+
   const jsxFlow = (node: any, path: number[]): Block[] => {
     if (isImageElement(node)) return [figureOrImage(node, path)];
     // An inline element alone on a line of this tool's own output — `<mark>This text is orange.</mark>` —
@@ -1094,6 +1209,8 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
     if (String(node.name).toLowerCase() === 'picture') { const picture = pictureImage(node, path); if (picture) return [picture]; }
     if (opts.platform === 'gitbook') { const converted = gitbookFlow(node, path); if (converted) return converted; }
     if (opts.platform === 'readme') { const converted = readmeFlow(node, path); if (converted) return converted; }
+    if (opts.platform === 'fern') { const converted = fernFlow(node, path); if (converted) return converted; }
+    if (opts.platform === 'nextra') { const converted = nextraFlow(node, path); if (converted) return converted; }
     // After the platform's own reading: GitBook and ReadMe give a <table> meanings of their own
     // (a row of cards, a button), and only a table nothing else claimed is read as a plain table.
     { const converted = htmlTableFlow(node, path); if (converted) return converted; }
@@ -1207,6 +1324,8 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
         return [{ ...base, type: 'component', name: 'esm', platform: opts.platform, props: { contentHash: idOf(node, p) }, children: [], styleDeps: ['expression:executable'] }];
       }
       case 'mdxFlowExpression':
+        // `{/* note */}` on a line of its own: the author's note, which no reader saw; not code to run
+        if (isCommentOnlyExpression(node.value) && opts.platform !== 'dai') return [];
         return [{ ...base, type: 'component', name: node.type === 'mdxjsEsm' ? 'esm' : 'expression', platform: opts.platform, props: { contentHash: idOf(node, p) }, children: [], styleDeps: ['expression:executable'] }];
       default:
         return unsupported(node);

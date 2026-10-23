@@ -11,9 +11,10 @@
  * A logo or favicon is written only as a URL the migration hosts. In exact mode nothing in the
  * output points at the source host, so an image that could not be hosted is left out and said so.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse as parseYaml, stringify as toYaml } from 'yaml';
+import { stringify as toYaml } from 'yaml';
+import { readEditedYaml } from '../session/edited-files.js';
 import type { NavbarLink, SiteBranding } from '../scrape/site-branding.js';
 import { hexColor } from '../scrape/site-branding.js';
 import { ICON_LIBRARIES, type IconLibrary } from '@dai/content-contract';
@@ -60,7 +61,7 @@ const HEADER = `# How the migrated site presents itself. None of this is content
 #   branding.carry   false leaves the source's colours, logo and favicon out (the platform's defaults apply).
 #                    Decide this for a demo of someone else's documentation.
 #   branding.colors  the brand colour per colour scheme, as #rrggbb
-#   branding.logo / favicon   source URLs; the assets stage hosts them, and nav writes the hosted URL
+#   branding.logo / favicon   source URLs or repository paths; the assets stage hosts them, and nav writes the hosted URL
 #   navbar           primary is the call-to-action button; links are the top bar's other links
 #   template         classic | atlas
 #   iconLibrary      lucide | fontawesome | tabler: where icons written by name alone come from. The source's
@@ -115,7 +116,7 @@ export function writeSitePlan(workspace: string, plan: SitePlan): void {
 export function readSitePlan(workspace: string): SitePlan | undefined {
   const path = sitePlanPath(workspace);
   if (!existsSync(path)) return undefined;
-  const parsed = parseYaml(readFileSync(path, 'utf8')) as Partial<SitePlan> | null;
+  const parsed = readEditedYaml<Partial<SitePlan> | null>(path);
   if (!parsed || typeof parsed !== 'object') throw new Error(`${path} is not a YAML mapping`);
   if (parsed.template !== undefined && parsed.template !== 'classic' && parsed.template !== 'atlas') throw new Error(`${path}: template must be classic or atlas`);
   if (parsed.icons !== undefined && !ICON_POLICIES.includes(parsed.icons)) throw new Error(`${path}: icons must be ${ICON_POLICIES.join(', ')}`);
@@ -129,10 +130,14 @@ export function readSitePlan(workspace: string): SitePlan | undefined {
   return { ...parsed, branding: { ...parsed.branding, carry: parsed.branding?.carry !== false }, icons: parsed.icons ?? 'source', stylesheet: parsed.stylesheet !== false, redirects: parsed.redirects !== false } as SitePlan;
 }
 
-/** Every image the plan asks the site to show, so the assets stage can host it with the pages' own media. */
+/**
+ * Every image the plan asks the site to show, so the assets stage can host it with the pages' own
+ * media: an address a live site serves it at, or a path in the repository a configuration names it by.
+ */
 export function sitePlanImages(plan: SitePlan | undefined): string[] {
   if (!plan?.branding.carry) return [];
-  return [...new Set([plan.branding.logo?.light, plan.branding.logo?.dark, plan.branding.favicon?.light, plan.branding.favicon?.dark].filter((url): url is string => typeof url === 'string' && /^https?:\/\//.test(url)))];
+  const usable = (url: unknown): url is string => typeof url === 'string' && !!url.trim() && (/^https?:\/\//i.test(url) || !/^[a-z][a-z0-9+.-]*:/i.test(url));
+  return [...new Set([plan.branding.logo?.light, plan.branding.logo?.dark, plan.branding.favicon?.light, plan.branding.favicon?.dark].filter(usable))];
 }
 
 export interface SiteSettingsInput {

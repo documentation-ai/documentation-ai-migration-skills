@@ -15,7 +15,7 @@ import type { Element } from 'domhandler';
 
 export interface SiteBranding {
   /** Where this was read from, so a reviewer knows how far to trust it. */
-  evidence: 'mintlify-config' | 'gitbook-rendered' | 'rendered-page';
+  evidence: 'mintlify-config' | 'fern-config' | 'gitbook-rendered' | 'rendered-page';
   name?: string;
   description?: string;
   /** The brand colour per colour scheme, as `#rrggbb`. */
@@ -79,6 +79,15 @@ export function mintlifyBranding(config: Record<string, unknown>): SiteBranding 
     const title = text(link, 'label') ?? text(link, 'name'); const href = text(link, 'href') ?? text(link, 'url');
     return title && href ? [{ title, link: href }] : [];
   });
+  // Links Mintlify pins above every sidebar (`navigation.global`): shown on every page, as the top bar's links are
+  const global = record(record(config.navigation)?.global);
+  for (const key of ['anchors', 'tabs'] as const) {
+    for (const item of Array.isArray(global?.[key]) ? global![key] as unknown[] : []) {
+      const entry = record(item);
+      const title = text(entry, 'anchor') ?? text(entry, 'tab') ?? text(entry, 'name'); const href = text(entry, 'href');
+      if (title && href && !links.some((link) => link.link === href)) links.push({ title, link: href });
+    }
+  }
   const primaryNode = record(navbar?.primary) ?? record(config.topbarCtaButton);
   // a `github` primary states only the repository; its label is the platform's, not the site's
   const primary = primaryNode && (text(primaryNode, 'label') ?? text(primaryNode, 'name')) && (text(primaryNode, 'href') ?? text(primaryNode, 'url'))
@@ -107,6 +116,42 @@ export function mintlifyBranding(config: Record<string, unknown>): SiteBranding 
     unsupported,
   });
   return { evidence: 'mintlify-config', ...(branding ?? {}), iconLibrary };
+}
+
+/**
+ * Branding from a Fern `docs.yml`: its title, `colors.accent-primary` (one colour, or one per
+ * scheme), logo and favicon (paths relative to docs.yml, hosted by the assets stage like any page
+ * image), and the top bar's `navbar-links`.
+ */
+export function fernBranding(config: Record<string, unknown>): SiteBranding | undefined {
+  const colors = record(config.colors);
+  const accent = colors?.['accent-primary'] ?? colors?.accentPrimary;
+  const accentPair = typeof accent === 'string' ? { light: hexColor(accent), dark: hexColor(accent) } : compact({ light: hexColor(record(accent)?.light), dark: hexColor(record(accent)?.dark) ?? hexColor(record(accent)?.light) });
+  const logo = record(config.logo);
+  const links = (Array.isArray(config['navbar-links']) ? config['navbar-links'] as unknown[] : []).flatMap((item): NavbarLink[] => {
+    const link = record(item);
+    if (text(link, 'type') === 'github') {
+      const value = link?.value; const href = typeof value === 'string' ? value : text(record(value), 'url');
+      return href ? [{ title: 'GitHub', link: href }] : [];
+    }
+    const title = text(link, 'text'); const href = text(link, 'href') ?? text(link, 'url');
+    return title && href ? [{ title, link: href }] : [];
+  });
+  const unsupported: string[] = [];
+  if (config.typography) unsupported.push('typography: the platform sets its own typography; a custom stylesheet can change it');
+  if (config.css || config.js) unsupported.push('custom CSS and JavaScript files: carried by hand into documentation.json settings if still wanted');
+  if (config['background-image']) unsupported.push('background image: no counterpart');
+  if (config.announcement) unsupported.push('announcement banner: the platform has no announcement banner');
+  const branding = compact({
+    name: typeof config.title === 'string' ? config.title.trim() || undefined : undefined,
+    colors: accentPair,
+    logo: logo ? compact({ light: text(logo, 'light') ?? text(logo, 'dark'), dark: text(logo, 'dark'), href: text(logo, 'href') }) : undefined,
+    favicon: typeof config.favicon === 'string' && config.favicon.trim() ? { light: config.favicon.trim() } : undefined,
+    navbar: compact({ links: links.length ? links : undefined }),
+    unsupported,
+  });
+  // Fern draws icons named alone (`rocket`) from Font Awesome, as `fa-solid fa-rocket` writes it
+  return { evidence: 'fern-config', ...(branding ?? {}), iconLibrary: 'fontawesome' };
 }
 
 const attr = (node: Element, name: string): string => (getAttributeValue(node, name) ?? '').trim();

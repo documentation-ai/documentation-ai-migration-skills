@@ -4,10 +4,11 @@
  * instead, and the size check that keeps exact mode from hosting a file other than the one captured.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ingestAssets, type McpToolCaller } from '../src/assets/providers.js';
+import { ingestAssets, uploadNote, type McpToolCaller } from '../src/assets/providers.js';
 import { readManifest, writeManifest, type AssetEntry, type AssetManifest } from '../src/assets/manifest.js';
 
 const PROJECT = { organizationId: 'o1', documentationId: 'd1' };
@@ -37,11 +38,20 @@ function manifest(w: string, assets: Array<{ hash: string; url: string; size?: n
   return m;
 }
 
-/** A stand-in for import_media: stores each URL unless `refuse` says otherwise, answering in the real tool's shape. */
-function server(options: { refuse?: (url: string, call: number) => string | undefined; size?: (url: string) => number } = {}) {
+/**
+ * A stand-in for import_media: stores each URL unless `refuse` says otherwise, answering in the real
+ * tool's shape. `library` is what list_media answers; request_upload hands out one link per call.
+ */
+function server(options: { refuse?: (url: string, call: number) => string | undefined; size?: (url: string) => number; library?: Array<{ name: string; url: string; sizeBytes: number }> } = {}) {
   const calls: Array<{ files: Array<{ url: string; name?: string }>; organizationId?: string; documentationId?: string }> = [];
+  const uploadLinks: Array<{ note?: string }> = [];
   const client: McpToolCaller = {
     call: async (tool, args) => {
+      if (tool === 'list_media') return { structured: { total: options.library?.length ?? 0, media: options.library ?? [] } as never, text: '' };
+      if (tool === 'request_upload') {
+        uploadLinks.push(args as never);
+        return { structured: { url: `https://app.example/upload/token-${uploadLinks.length}`, expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), requestedAt: new Date().toISOString() } as never, text: '' };
+      }
       if (tool !== 'import_media') throw new Error(`unexpected tool ${tool}`);
       calls.push(args as never);
       const files = (args.files as Array<{ url: string; name?: string }>);
@@ -55,7 +65,7 @@ function server(options: { refuse?: (url: string, call: number) => string | unde
       return { structured: { imported, failed } as never, text: '' };
     },
   };
-  return { client, calls };
+  return { client, calls, uploadLinks };
 }
 
 const noWait = async () => {};
@@ -104,7 +114,7 @@ describe('dai-mcp: hosting through a sign-in', () => {
     ]), { workspace: w, provider: 'dai-mcp', mcp: { client, project: PROJECT }, sleep: noWait });
     expect(m.entries.a).toMatchObject({ status: 'ingested', finalUrl: hosted('a.png') });
     expect(m.entries.b.status).toBe('failed');
-    expect(m.entries.b.error).toMatch(/could not fetch it: Source answered 404.*project API key/);
+    expect(m.entries.b.error).toMatch(/^waiting to be uploaded \(the platform could not fetch it: Source answered 404/);
     expect(m.entries.c).toMatchObject({ status: 'ingested', finalUrl: hosted('c.png') });
   });
 
@@ -162,13 +172,64 @@ describe('dai-mcp: files that must go as bytes', () => {
     return { fetchImpl, uploads, dai: { baseUrl: 'https://api.example', token: 'k' } };
   };
 
-  it('fails a file with no public https address, and says a key would carry it', async () => {
+  /**
+   * A repository's own image, or any file no public address serves, used to fail without an API
+   * key, and customers are never asked for one. It now goes through the project's upload page.
+   */
+  it('puts a file with no public address in the upload folder and asks for a drop, then finds it after the drop', async () => {
     const w = workspace();
-    const { client, calls } = server();
-    const m = await ingestAssets(manifest(w, [{ hash: 'a', url: 'http://docs.example/a.png' }]), { workspace: w, provider: 'dai-mcp', mcp: { client, project: PROJECT }, sleep: noWait });
-    expect(calls).toHaveLength(0);
-    expect(m.entries.a.status).toBe('failed');
-    expect(m.entries.a.error).toMatch(/no public https address.*project API key/);
+    const first = server();
+    const waiting = await ingestAssets(manifest(w, [{ hash: 'a1b2c3d4e5f6', url: 'repo:fern/assets/diagram.png' }]), { workspace: w, provider: 'dai-mcp', mcp: { client: first.client, project: PROJECT }, sleep: noWait });
+    expect(first.calls).toHaveLength(0);
+    expect(first.uploadLinks).toHaveLength(1);
+    expect(waiting.entries.a1b2c3d4e5f6).toMatchObject({ status: 'failed', error: expect.stringMatching(/^waiting to be uploaded \(it has no public https address/) });
+    expect(waiting.uploadRequest).toMatchObject({ url: 'https://app.example/upload/token-1', folder: join(w, 'upload'), files: ['diagram-a1b2c3d4e5.png'] });
+    expect(readdirSync(join(w, 'upload'))).toEqual(['diagram-a1b2c3d4e5.png']);
+    expect(readManifest(w).uploadRequest?.url).toBe('https://app.example/upload/token-1');
+
+    // the person dropped it: the library now holds it under that name, and the next run uses it
+    const after = server({ library: [{ name: 'diagram-a1b2c3d4e5.png', url: hosted('diagram-a1b2c3d4e5.png'), sizeBytes: 3 }] });
+    const done = await ingestAssets(readManifest(w), { workspace: w, provider: 'dai-mcp', mcp: { client: after.client, project: PROJECT }, sleep: noWait });
+    expect(after.uploadLinks).toHaveLength(0);
+    expect(done.entries.a1b2c3d4e5f6).toMatchObject({ status: 'ingested', finalUrl: hosted('diagram-a1b2c3d4e5.png') });
+    expect(done.uploadRequest).toBeUndefined();
+    expect(existsSync(join(w, 'upload'))).toBe(false);
+  });
+
+  it('keeps one open upload link across runs instead of asking for a new one each time', async () => {
+    const w = workspace();
+    const { client, uploadLinks } = server();
+    await ingestAssets(manifest(w, [{ hash: 'abc', url: 'repo:docs/a.png' }]), { workspace: w, provider: 'dai-mcp', mcp: { client, project: PROJECT }, sleep: noWait });
+    await ingestAssets(readManifest(w), { workspace: w, provider: 'dai-mcp', mcp: { client, project: PROJECT }, sleep: noWait });
+    expect(uploadLinks).toHaveLength(1);
+    // an expired one is replaced
+    await ingestAssets(readManifest(w), { workspace: w, provider: 'dai-mcp', mcp: { client, project: PROJECT }, sleep: noWait, now: () => new Date(Date.now() + 60 * 60_000) });
+    expect(uploadLinks).toHaveLength(2);
+  });
+
+  /**
+   * The library keeps bytes it already holds under the name they were first stored as, and a
+   * picture's address asks the image service to recompress it: neither that name nor those bytes
+   * matched, so such a file stayed "waiting to be uploaded" however often it was dropped.
+   */
+  it('finds a file the library already held under another name, by the bytes stored rather than the recompressed ones', async () => {
+    const w = workspace();
+    const hash = createHash('sha256').update(Buffer.alloc(5)).digest('hex');
+    const address = 'https://blob-cdn.example/org-o1/doc-d1/1-logo.png';
+    const fetchImpl = (async (input: unknown) => new Response(String(input).includes('?') ? Buffer.from([1, 2, 3, 4, 5]) : Buffer.alloc(5))) as unknown as typeof fetch;
+    const { client, uploadLinks } = server({ library: [{ name: 'logo.png', url: `${address}?fm=auto&auto=compress%2Cformat`, sizeBytes: 5 }] });
+    const m = await ingestAssets(manifest(w, [{ hash, url: 'repo:fern/assets/logo.png', size: 5 }]), { workspace: w, provider: 'dai-mcp', mcp: { client, project: PROJECT }, fetchImpl, sleep: noWait });
+    expect(m.entries[hash]).toMatchObject({ status: 'ingested', finalUrl: `${address}?fm=auto&auto=compress%2Cformat`, note: "already in the project's library as logo.png" });
+    expect(uploadLinks).toHaveLength(0);
+  });
+
+  it('keeps the note the upload page shows within the 200 characters request_upload takes, however deep the folder', () => {
+    const deep = `/Users/someone/Library/CloudStorage/OneDrive-Company/${'Documents/'.repeat(14)}migrations/acme-docs/upload`;
+    const note = uploadNote(3, deep);
+    expect(note.length).toBeLessThanOrEqual(200);
+    expect(note).toMatch(/^3 file\(s\) from your documentation migration: drop every file from the folder …/);
+    expect(note.endsWith('migrations/acme-docs/upload')).toBe(true);
+    expect(uploadNote(3, '/home/sam/migrations/acme/upload')).toBe('3 file(s) from your documentation migration: drop every file from the folder /home/sam/migrations/acme/upload');
   });
 
   it('uploads such a file with the key when one is set', async () => {

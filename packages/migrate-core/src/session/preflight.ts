@@ -125,7 +125,7 @@ export async function preflight(opts: PreflightOptions): Promise<PreflightResult
   if (!opts.daiApiKey || !opts.daiApiBase) {
     checks.push({ id: 'dai-api', status: 'not-checked', detail: 'DAI_API_KEY not configured; platform checks skipped (repo-branch writer only, no preview discovery)' });
     target.assetProvider = opts.s3Configured ? 's3' : 'dai-mcp';
-    checks.push({ id: 'asset-provider', status: 'ok', detail: `assets will use --provider ${target.assetProvider}${target.assetProvider === 'dai-mcp' ? ' (pictures are hosted through your Documentation.AI sign-in; files with no public address need a project API key)' : ''}` });
+    checks.push({ id: 'asset-provider', status: 'ok', detail: `assets will use --provider ${target.assetProvider}${target.assetProvider === 'dai-mcp' ? ' (pictures are hosted through your Documentation.AI sign-in; files no public address serves, such as a repository\'s own images, are dropped on the project\'s upload page)' : ''}` });
     return { checks, target };
   }
 
