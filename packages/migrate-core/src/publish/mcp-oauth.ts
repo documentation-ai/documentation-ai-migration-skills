@@ -3,10 +3,12 @@
  *
  * Whoever migrates into a Documentation.AI project already has an account with access to it, so
  * asking them to go and mint an API key first is a detour. The server publishes the standard
- * discovery documents (RFC 9728 for the resource, RFC 8414 for the authorization server) and lets
- * a client register itself (RFC 7591), which is how Claude, Cursor and the rest connect. This does
- * the same from the command line: register as a public client, open the sign-in page, receive the
- * authorization code on a loopback address (RFC 8252), and exchange it with PKCE (RFC 7636).
+ * discovery documents (RFC 9728 for the resource, RFC 8414 for the authorization server) and names
+ * how a client introduces itself: by the address of its client ID metadata document (what
+ * Documentation.AI's server takes since October 2026, and what Claude and VS Code use), or by
+ * registering itself (RFC 7591). This does the same from the command line: introduce itself as a
+ * public client, open the sign-in page, receive the authorization code on a loopback address
+ * (RFC 8252), and exchange it with PKCE (RFC 7636).
  *
  * The token lives in this process's memory and nowhere else: it is never written to the workspace,
  * a file, a log or a report, so there is nothing to leak and nothing to clean up. Signing in again
@@ -23,6 +25,8 @@ export interface AuthorizationDiscovery {
   authorizationEndpoint: string;
   tokenEndpoint: string;
   registrationEndpoint?: string;
+  /** The server takes a client named by the address of its metadata document, with no registration. */
+  clientIdMetadataDocuments: boolean;
   scopes: string[];
 }
 
@@ -35,9 +39,40 @@ export interface SignInOptions {
   /** How long to wait for the person to finish signing in. */
   timeoutMs?: number;
   clientName?: string;
+  /** Where this command line's client metadata document is served (its address is the client id). */
+  clientMetadataUrl?: string;
+  /** The callback ports that document lists, tried in order. */
+  callbackPorts?: readonly number[];
 }
 
 export interface SignedIn { accessToken: string; expiresInSeconds?: number }
+
+/**
+ * This command line's client ID metadata document, served by the documentation.ai website
+ * (documentation-ai-website, `public/oauth/migrator.json`). The served file must be exactly
+ * `clientMetadataDocument()`: change one and the other together, or every sign-in is refused.
+ * `DAI_OAUTH_CLIENT_ID` names another copy, for trying a change before the website serves it.
+ */
+export const CLIENT_METADATA_URL = 'https://documentation.ai/oauth/migrator.json';
+
+/** The server matches the redirect address exactly, so the callback cannot take just any free port: it takes the first free one of these. */
+export const CALLBACK_PORTS = [38417, 38418, 38419] as const;
+
+const callbackUri = (port: number): string => `http://127.0.0.1:${port}/callback`;
+
+/** A public client (no secret) that comes back to this machine: what the authorization server reads at the client id. */
+export function clientMetadataDocument(clientId: string = CLIENT_METADATA_URL, ports: readonly number[] = CALLBACK_PORTS) {
+  return {
+    client_id: clientId,
+    client_name: 'Documentation.AI migrator',
+    client_uri: 'https://documentation.ai',
+    redirect_uris: ports.map(callbackUri),
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+    application_type: 'native',
+  };
+}
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -65,10 +100,10 @@ export async function discoverAuthorization(mcpUrl: string, fetchImpl: typeof fe
   // RFC 9728: the path-suffixed document first, then the root one
   const resource = await json(fetchImpl, `${mcp.origin}/.well-known/oauth-protected-resource${path}`) ?? await json(fetchImpl, `${mcp.origin}/.well-known/oauth-protected-resource`);
   const issuers = Array.isArray(resource?.authorization_servers) ? resource!.authorization_servers.filter((entry): entry is string => typeof entry === 'string') : [];
-  if (!issuers.length) throw new Error(`${mcp.origin} does not say where to sign in (no OAuth protected-resource document). Set DAI_API_KEY to publish with the project's API key instead`);
+  if (!issuers.length) throw new Error(`${mcp.origin} does not say where to sign in (no OAuth protected-resource document). If DAI_MCP_URL is set, check it; otherwise try again in a few minutes`);
   const issuer = secureUrl(issuers[0], 'authorization server').replace(/\/+$/, '');
   const metadata = await json(fetchImpl, `${issuer}/.well-known/oauth-authorization-server`) ?? await json(fetchImpl, `${issuer}/.well-known/openid-configuration`) ?? await json(fetchImpl, `${mcp.origin}/.well-known/oauth-authorization-server`);
-  if (!metadata) throw new Error(`the authorization server ${issuer} publishes no metadata, so sign-in cannot start. Set DAI_API_KEY to publish with the project's API key instead`);
+  if (!metadata) throw new Error(`the authorization server ${issuer} publishes no metadata, so sign-in cannot start. Try again in a few minutes`);
   const methods = Array.isArray(metadata.code_challenge_methods_supported) ? metadata.code_challenge_methods_supported : ['S256'];
   if (!methods.includes('S256')) throw new Error('the authorization server does not support PKCE with S256, which a command-line sign-in requires');
   const challenged = Array.isArray(resource?.scopes_supported) ? resource!.scopes_supported.filter((scope): scope is string => typeof scope === 'string') : [];
@@ -78,6 +113,7 @@ export async function discoverAuthorization(mcpUrl: string, fetchImpl: typeof fe
     authorizationEndpoint: secureUrl(metadata.authorization_endpoint, 'authorization endpoint'),
     tokenEndpoint: secureUrl(metadata.token_endpoint, 'token endpoint'),
     ...(typeof metadata.registration_endpoint === 'string' ? { registrationEndpoint: secureUrl(metadata.registration_endpoint, 'registration endpoint') } : {}),
+    clientIdMetadataDocuments: metadata.client_id_metadata_document_supported === true,
     scopes: challenged,
   };
 }
@@ -94,14 +130,36 @@ const base64url = (bytes: Buffer): string => bytes.toString('base64').replace(/\
 
 const PAGE = (title: string, body: string): string => `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:18vh auto;padding:0 1.5rem;color:#1a1a1a"><h1 style="font-size:1.35rem">${title}</h1><p>${body}</p>`;
 
+/** Listens on the first of these ports that is free (0 is any port), and says which one. */
+async function listenOnFirstFree(server: Server, ports: readonly number[]): Promise<number> {
+  for (const port of ports) {
+    try {
+      await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); }); });
+      return (server.address() as AddressInfo).port;
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error; }
+  }
+  throw new Error(`ports ${ports.join(', ')} on this machine are all in use, and the sign-in comes back on one of them. Finish or close another sign-in that is still waiting, then run the command again`);
+}
+
+/** Self-registration (RFC 7591), for a server that offers no client ID metadata documents. */
+async function registerClient(fetchImpl: typeof fetch, endpoint: string, body: Record<string, unknown>): Promise<{ client_id: string; client_secret?: string }> {
+  const registered = await fetchImpl(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, signal: AbortSignal.timeout(30_000), body: JSON.stringify(body) });
+  if (!registered.ok) throw new Error(`the authorization server refused to register this command line (HTTP ${registered.status}): ${(await registered.text()).slice(0, 200)}`);
+  const client = await registered.json() as { client_id?: string; client_secret?: string };
+  if (!client.client_id) throw new Error('the authorization server registered this command line without returning a client id');
+  return { client_id: client.client_id, ...(client.client_secret ? { client_secret: client.client_secret } : {}) };
+}
+
 /** Signs the person in through their browser and returns an access token for the MCP server. */
 export async function signInWithBrowser(options: SignInOptions): Promise<SignedIn> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const log = options.log ?? (() => undefined);
   const discovery = await discoverAuthorization(options.mcpUrl, fetchImpl);
-  if (!discovery.registrationEndpoint) throw new Error('the authorization server does not let a client register itself, so the command line cannot sign in. Set DAI_API_KEY to publish with the project\'s API key instead');
+  // A metadata document first, as the MCP specification orders them; self-registration only where it is all the server offers.
+  const metadataUrl = discovery.clientIdMetadataDocuments ? options.clientMetadataUrl ?? process.env.DAI_OAUTH_CLIENT_ID ?? CLIENT_METADATA_URL : undefined;
+  if (!metadataUrl && !discovery.registrationEndpoint) throw new Error('the authorization server takes neither a client ID metadata document nor a client that registers itself, so this version of the command line cannot sign in. Update the plugin; if that does not help, tell Documentation.AI');
 
-  // The loopback listener first: its port is part of the redirect address the client registers.
+  // The loopback listener first: its port is part of the redirect address the client is known by.
   const state = base64url(randomBytes(24));
   let settle: { resolve: (code: string) => void; reject: (error: Error) => void } | undefined;
   const arrived = new Promise<string>((resolve, reject) => { settle = { resolve, reject }; });
@@ -118,18 +176,14 @@ export async function signInWithBrowser(options: SignInOptions): Promise<SignedI
     finish(200, 'Signed in to Documentation.AI', 'You can close this tab and go back to the terminal, where the migration carries on.');
     settle?.resolve(code);
   });
-  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-  const redirectUri = `http://127.0.0.1:${(server.address() as AddressInfo).port}/callback`;
+  const port = await listenOnFirstFree(server, metadataUrl ? options.callbackPorts ?? CALLBACK_PORTS : [0]);
+  const redirectUri = callbackUri(port);
 
   try {
     const scope = (discovery.scopes.length ? discovery.scopes : ['profile', 'email']).join(' ');
-    const registered = await fetchImpl(discovery.registrationEndpoint, {
-      method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, signal: AbortSignal.timeout(30_000),
-      body: JSON.stringify({ client_name: options.clientName ?? 'Documentation.AI migrator (documentation-ai-migrate)', redirect_uris: [redirectUri], grant_types: ['authorization_code'], response_types: ['code'], token_endpoint_auth_method: 'none', scope }),
-    });
-    if (!registered.ok) throw new Error(`the authorization server refused to register this command line (HTTP ${registered.status}): ${(await registered.text()).slice(0, 200)}`);
-    const client = await registered.json() as { client_id?: string; client_secret?: string };
-    if (!client.client_id) throw new Error('the authorization server registered this command line without returning a client id');
+    const client: { client_id: string; client_secret?: string } = metadataUrl
+      ? { client_id: metadataUrl }
+      : await registerClient(fetchImpl, discovery.registrationEndpoint!, { client_name: options.clientName ?? 'Documentation.AI migrator (documentation-ai-migrate)', redirect_uris: [redirectUri], grant_types: ['authorization_code'], response_types: ['code'], token_endpoint_auth_method: 'none', scope });
 
     const verifier = base64url(randomBytes(48));
     const authorize = new URL(discovery.authorizationEndpoint);
@@ -140,7 +194,7 @@ export async function signInWithBrowser(options: SignInOptions): Promise<SignedI
 
     const timeoutMs = options.timeoutMs ?? 5 * 60_000;
     let timer: NodeJS.Timeout | undefined;
-    const code = await Promise.race([arrived, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`nobody signed in within ${Math.round(timeoutMs / 60_000)} minutes. Run the command again, or set DAI_API_KEY to publish with the project's API key`)), timeoutMs); })]).finally(() => clearTimeout(timer));
+    const code = await Promise.race([arrived, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`nobody signed in within ${Math.round(timeoutMs / 60_000)} minutes. Run the command again`)), timeoutMs); })]).finally(() => clearTimeout(timer));
 
     const form = new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: client.client_id, code_verifier: verifier, resource: discovery.resource });
     if (client.client_secret) form.set('client_secret', client.client_secret);
