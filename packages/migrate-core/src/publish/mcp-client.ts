@@ -19,6 +19,9 @@ export class McpToolError extends Error {
   constructor(readonly tool: string, message: string, readonly structured?: unknown) { super(message); }
 }
 
+/** The server turned the credential away: a sign-in that expired or was revoked, or a key that is wrong. */
+export class McpCredentialRefused extends Error {}
+
 export interface McpClientOptions {
   url?: string;
   token: string;
@@ -77,7 +80,7 @@ export class McpClient {
         await this.sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 2000 * attempt);
         continue;
       }
-      if (response.status === 401 || response.status === 403) throw new Error(`the Authoring MCP server refused the credential (HTTP ${response.status}): check that DAI_API_KEY is this project's key and has not been revoked`);
+      if (response.status === 401 || response.status === 403) throw new McpCredentialRefused(`the Authoring MCP server refused the credential (HTTP ${response.status}). Run the command again to sign in afresh; if DAI_API_KEY is set, check that it is this project's key and has not been revoked`);
       if (response.status === 404 && this.sessionId) throw new Error('the Authoring MCP session expired; run publish again, it continues where it stopped');
       if (!response.ok) throw new Error(`Authoring MCP server answered HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
       const session = response.headers.get('mcp-session-id');

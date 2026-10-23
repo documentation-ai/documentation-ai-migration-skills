@@ -80,7 +80,7 @@ The first command you run installs what the command line needs (once, about a mi
 
 You can add the marketplace straight from GitHub instead (`/plugin marketplace add documentation-ai/documentation-ai-migration-skills`). Or start Claude Code with the plugin loaded from disk: `claude --plugin-dir ~/documentation-ai-migration-skills`. An installed copy is not a git checkout, and needs none: the migration records the build it ran with by the content of its own files.
 
-Installing the plugin also connects Documentation.AI's Authoring MCP server (`https://api.documentation.ai/mcp`), which is what publishes your migrated pages and hosts your pictures. Your browser opens to sign in the first time something needs it.
+The migration signs in to Documentation.AI through your browser the first time a step needs it (choosing the project, hosting pictures, publishing) and keeps that sign-in for the rest of the migration. Installing the plugin adds no MCP connection of its own, so your assistant never asks you to sign in to one; to edit your docs from the same session afterwards, connect Documentation.AI's Authoring MCP server (`https://api.documentation.ai/mcp`) yourself.
 
 If you also want your published documentation searchable from the same session, add your own Reader MCP server by hand; it is served from your docs domain, as `https://docs.yourdomain.com/_mcp`.
 
@@ -135,10 +135,10 @@ npx documentation-ai-migrate init --workspace $W --source https://docs.acme.com 
 npx documentation-ai-migrate init    --workspace $W --source https://docs.acme.com --customer-authorised
 npx documentation-ai-migrate project --workspace $W                 # opens your browser to sign in; records which project this goes into
 #   … the same stages …
-npx documentation-ai-migrate publish --workspace $W                 # signs in again, then publishes into that project
+npx documentation-ai-migrate publish --workspace $W                 # reuses that sign-in, then publishes into that project
 ```
 
-`publish` opens your browser so you can sign in to Documentation.AI, exactly as an assistant does when it connects to the MCP server. The sign-in is held in memory for that run and never written anywhere. If your account can edit several projects, name the one you mean with `--project "<name>"`; it is remembered for this migration. Then it sends every file, then the settings and navigation, and publishes a working version `migration/<id>` once. Documentation.AI builds that version's preview by itself: open the project in the dashboard, switch to the working version, copy the preview address from the Save menu (or from Deployments → Preview), and pass it to `verify --preview-url`.
+`project` opens your browser so you can sign in to Documentation.AI, exactly as an assistant does when it connects to the MCP server, and `assets` and `publish` reuse that sign-in. It is kept until it expires in a file only you can read, in your own configuration folder (`~/.config/documentation-ai-migrate`, `%APPDATA%` on Windows), never in the workspace; `release` deletes it, and so does `npx documentation-ai-migrate sign-out`. If your account can edit several projects, name the one you mean with `--project "<name>"`; it is remembered for this migration. Then it sends every file, then the settings and navigation, and publishes a working version `migration/<id>` once. Documentation.AI builds that version's preview by itself: open the project in the dashboard, switch to the working version, copy the preview address from the Save menu (or from Deployments → Preview), and pass it to `verify --preview-url`.
 
 If `publish` stops half-way, run it again and it continues. Pages your project had before are taken out of the navigation (so they are no longer served) and left in place; `--remove-old-pages` deletes them. Go live by merging the working version in the dashboard. On a machine nobody sits at, set `DAI_API_KEY` to the project's key instead of signing in; with a key the preview address is looked up for you.
 
@@ -176,11 +176,11 @@ codex plugin add documentation-ai-migration@documentation-ai-migration
 Codex runs commands in a sandbox with the network off and only the current folder writable. A migration fetches the source, pushes or publishes, and writes its workspace elsewhere, so start Codex with both allowed:
 
 ```bash
-mkdir -p ~/migrations
-codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir ~/migrations
+mkdir -p ~/migrations ~/.config/documentation-ai-migrate
+codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir ~/migrations --add-dir ~/.config/documentation-ai-migrate
 ```
 
-Then type `Use $migrate-generic-to-documentation-ai to migrate https://docs.acme.com onto Documentation.AI` and give `~/migrations/<name>` as the workspace. Inside that sandbox `npx` cannot run, so the skill has Codex call `node packages/migrate-core/bin/documentation-ai-migrate.mjs` directly. For the MCP flow, Codex hands you the one `publish` command to run in your own terminal, because the browser sign-in is yours. To pick up a new version later: `codex plugin remove documentation-ai-migration@documentation-ai-migration`, then `codex plugin add` again.
+Then type `Use $migrate-generic-to-documentation-ai to migrate https://docs.acme.com onto Documentation.AI` and give `~/migrations/<name>` as the workspace. Inside that sandbox `npx` cannot run, so the skill has Codex call `node packages/migrate-core/bin/documentation-ai-migrate.mjs` directly. For the MCP flow, Codex hands you the one `publish` command to run in your own terminal, because the browser sign-in is yours. To pick up a new version later: `codex plugin marketplace upgrade`. The second `--add-dir` lets the migration keep your Documentation.AI sign-in between steps; without it each step that needs the sign-in asks again.
 
 **MCP hosts.** The MCP server is this same command line, served over stdio. Print the block your host needs, with this machine's paths already in it, and copy it from the terminal:
 

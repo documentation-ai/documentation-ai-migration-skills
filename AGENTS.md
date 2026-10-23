@@ -32,7 +32,8 @@ Invoke it from the repository root as `npm run documentation-ai-migrate -- <comm
 it is not installed globally. In a sandbox where npm cannot write its own folder (Codex), run the
 launcher directly, `node packages/migrate-core/bin/documentation-ai-migrate.mjs <command>`, with the network
 allowed and the parent of the workspace folder writable
-(`codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir <folder>`).
+(`codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true --add-dir <folder> --add-dir ~/.config/documentation-ai-migrate`;
+the second folder keeps the Documentation.AI sign-in between steps).
 The full ordered command sequence is in `references/how-a-migration-runs.md` under "Run sequence".
 In short:
 

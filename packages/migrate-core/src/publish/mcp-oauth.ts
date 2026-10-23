@@ -10,14 +10,20 @@
  * public client, open the sign-in page, receive the authorization code on a loopback address
  * (RFC 8252), and exchange it with PKCE (RFC 7636).
  *
- * The token lives in this process's memory and nowhere else: it is never written to the workspace,
- * a file, a log or a report, so there is nothing to leak and nothing to clean up. Signing in again
- * on the next run is one click, because the browser remembers the account.
+ * A migration needs the sign-in at several steps (choosing the project, hosting pictures,
+ * publishing), each its own process, and asking for it at every one sent customers through the
+ * browser again and again. So the token is kept until it expires (`signInOnce`): in a file only
+ * this account can read, in the person's own configuration folder, never in a workspace, a log or
+ * a report. `release` and `sign-out` delete it. Where that folder cannot be written (a sandbox),
+ * nothing is kept and each step signs in as before.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 export interface AuthorizationDiscovery {
   resource: string;
@@ -206,6 +212,89 @@ export async function signInWithBrowser(options: SignInOptions): Promise<SignedI
   } finally {
     server.close();
     server.closeAllConnections?.();
+  }
+}
+
+/**
+ * Where a sign-in is kept between a migration's steps: the person's own configuration folder
+ * (`%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere), never a workspace.
+ */
+export function signInFolder(env: NodeJS.ProcessEnv = process.env, home: string = homedir(), platform: NodeJS.Platform = process.platform): string {
+  const base = platform === 'win32' ? env.APPDATA || join(home, 'AppData', 'Roaming') : env.XDG_CONFIG_HOME || join(home, '.config');
+  return join(base, 'documentation-ai-migrate', 'sign-in');
+}
+
+/** The person could not be signed in (as distinct from the server failing once they were). */
+export class SignInFailed extends Error {}
+
+/** One file per server, named by a hash of its address so the address is not spelled out on disk. */
+const keptSignInFile = (folder: string, mcpUrl: string): string => join(folder, `${createHash('sha256').update(mcpUrl).digest('hex').slice(0, 16)}.json`);
+
+/** A kept sign-in is reused only while it has at least this long left, so no step starts with a token about to lapse. */
+const REUSE_MARGIN_MS = 5 * 60_000;
+
+/** The sign-in kept for this server, while it is still good. */
+export function keptSignIn(mcpUrl: string, folder: string = signInFolder(), now: number = Date.now()): SignedIn | undefined {
+  try {
+    const kept = JSON.parse(readFileSync(keptSignInFile(folder, mcpUrl), 'utf8')) as { mcpUrl?: unknown; accessToken?: unknown; expiresAt?: unknown };
+    if (kept.mcpUrl !== mcpUrl || typeof kept.accessToken !== 'string' || typeof kept.expiresAt !== 'string') return undefined;
+    const left = Date.parse(kept.expiresAt) - now;
+    return left > REUSE_MARGIN_MS ? { accessToken: kept.accessToken, expiresInSeconds: Math.floor(left / 1000) } : undefined;
+  } catch { return undefined; }
+}
+
+/**
+ * Keeps a sign-in for the migration's later steps, readable by this account only, until it expires
+ * (an hour when the server does not say). False when the folder cannot be written.
+ */
+export function keepSignIn(mcpUrl: string, signedIn: SignedIn, folder: string = signInFolder(), now: number = Date.now()): boolean {
+  try {
+    mkdirSync(folder, { recursive: true, mode: 0o700 });
+    chmodSync(folder, 0o700);
+    const file = keptSignInFile(folder, mcpUrl);
+    const expiresAt = new Date(now + (signedIn.expiresInSeconds ?? 3600) * 1000).toISOString();
+    writeFileSync(file, JSON.stringify({ mcpUrl, accessToken: signedIn.accessToken, expiresAt }), { mode: 0o600 });
+    // the mode applies only when the file is created; an older file keeps its own
+    chmodSync(file, 0o600);
+    return true;
+  } catch { return false; }
+}
+
+/** Deletes the sign-in kept for this server. */
+export function forgetSignIn(mcpUrl: string, folder: string = signInFolder()): void {
+  try { rmSync(keptSignInFile(folder, mcpUrl), { force: true }); } catch { /* nothing was kept */ }
+}
+
+/**
+ * The person's sign-in for this server: the one kept from an earlier step while it is good, or a
+ * new one through the browser, then kept. `reused` says which, so a kept sign-in the server turns
+ * away can be replaced.
+ */
+export async function signInOnce(options: SignInOptions & { folder?: string }): Promise<SignedIn & { reused: boolean }> {
+  const folder = options.folder ?? signInFolder();
+  const kept = keptSignIn(options.mcpUrl, folder);
+  if (kept) {
+    options.log?.('signed in to Documentation.AI with the sign-in from an earlier step of this migration');
+    return { ...kept, reused: true };
+  }
+  let signedIn: SignedIn;
+  try { signedIn = await signInWithBrowser(options); } catch (error) { throw new SignInFailed((error as Error).message); }
+  if (!keepSignIn(options.mcpUrl, signedIn, folder)) options.log?.(`the sign-in could not be kept in ${folder} (this environment does not allow writing there), so the next step that needs it asks again`);
+  return { ...signedIn, reused: false };
+}
+
+/**
+ * Runs `use` with the person's sign-in (`signInOnce`). A kept sign-in the server turns away
+ * (`refused`), revoked or reset since it was kept, is forgotten and replaced through the browser
+ * once, rather than failing the step.
+ */
+export async function withSignIn<T>(options: SignInOptions & { folder?: string }, use: (token: string) => Promise<T>, refused: (error: unknown) => boolean): Promise<T> {
+  const signedIn = await signInOnce(options);
+  try { return await use(signedIn.accessToken); } catch (error) {
+    if (!signedIn.reused || !refused(error)) throw error;
+    forgetSignIn(options.mcpUrl, options.folder ?? signInFolder());
+    options.log?.('Documentation.AI no longer accepts the sign-in from an earlier step; sign in again in your browser');
+    return use((await signInOnce(options)).accessToken);
   }
 }
 

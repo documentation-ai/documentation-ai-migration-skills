@@ -8,12 +8,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { CALLBACK_PORTS, CLIENT_METADATA_URL, chooseProject, clientMetadataDocument, discoverAuthorization, signInWithBrowser, writableProjects, type AccessibleProject } from '../src/publish/mcp-oauth.js';
+import { CALLBACK_PORTS, CLIENT_METADATA_URL, chooseProject, clientMetadataDocument, discoverAuthorization, forgetSignIn, keepSignIn, keptSignIn, signInFolder, SignInFailed, signInOnce, signInWithBrowser, withSignIn, writableProjects, type AccessibleProject } from '../src/publish/mcp-oauth.js';
+import { McpClient, McpCredentialRefused } from '../src/publish/mcp-client.js';
 import { publishThroughMcp } from '../src/publish/publish.js';
 
 const MCP = 'https://api.example.com/mcp';
@@ -152,6 +153,95 @@ describe('signing in to the Authoring MCP server from the command line', () => {
     const message = await signInWithBrowser({ mcpUrl: MCP, fetchImpl: closed.fetchImpl, openBrowser: closed.browser('approve') }).catch((error: Error) => error.message);
     expect(message).toMatch(/cannot sign in\. Update the plugin/);
     expect(message).not.toContain('DAI_API_KEY');
+  });
+});
+
+/**
+ * A migration needs the sign-in at several steps, each its own process (and, from an MCP host,
+ * each its own spawned command). Asking at every one sent a customer through the browser again
+ * and again, so the first step keeps it for the rest.
+ */
+describe('one sign-in for a whole migration', () => {
+  const freshFolder = (): string => join(mkdtempSync(join(tmpdir(), 'dai-sign-in-')), 'sign-in');
+  async function signInSetup() {
+    const ports = await freePorts(1);
+    const server = authorizationServer({ cimd: true, registration: false, document: clientMetadataDocument(CLIENT_METADATA_URL, ports) });
+    const approve = server.browser('approve');
+    const counted = { opened: 0 };
+    const options = { mcpUrl: MCP, fetchImpl: server.fetchImpl, callbackPorts: ports, folder: freshFolder(), openBrowser: async (url: string) => { counted.opened++; await approve(url); } };
+    return { options, counted };
+  }
+
+  it('signs in through the browser once, and later steps reuse it from a file only this account can read', async () => {
+    const { options, counted } = await signInSetup();
+    expect(await signInOnce(options)).toMatchObject({ accessToken: 'token-abc', reused: false });
+    expect(await signInOnce(options)).toMatchObject({ accessToken: 'token-abc', reused: true });
+    expect(counted.opened).toBe(1);
+    const [file] = readdirSync(options.folder);
+    expect(file).not.toContain('example');
+    if (process.platform !== 'win32') {
+      expect(statSync(options.folder).mode & 0o777).toBe(0o700);
+      expect(statSync(join(options.folder, file)).mode & 0o777).toBe(0o600);
+    }
+    // release and sign-out delete it
+    forgetSignIn(MCP, options.folder);
+    expect(keptSignIn(MCP, options.folder)).toBeUndefined();
+  });
+
+  it('never reuses a sign-in about to lapse, past its expiry, or kept for another server', () => {
+    const folder = freshFolder();
+    const now = Date.now();
+    keepSignIn(MCP, { accessToken: 'short', expiresInSeconds: 120 }, folder, now);
+    expect(keptSignIn(MCP, folder, now)).toBeUndefined();
+    keepSignIn(MCP, { accessToken: 'long', expiresInSeconds: 3600 }, folder, now);
+    expect(keptSignIn(MCP, folder, now)?.accessToken).toBe('long');
+    expect(keptSignIn(MCP, folder, now + 3600_000)).toBeUndefined();
+    expect(keptSignIn('https://staging.example.com/mcp', folder, now)).toBeUndefined();
+  });
+
+  it('replaces a kept sign-in the server turns away through the browser, once, and keeps the new one', async () => {
+    const { options, counted } = await signInSetup();
+    keepSignIn(MCP, { accessToken: 'revoked', expiresInSeconds: 3600 }, options.folder);
+    const used: string[] = [];
+    const connect = async (token: string): Promise<string> => { used.push(token); if (token === 'revoked') throw new McpCredentialRefused('HTTP 401'); return 'connected'; };
+    expect(await withSignIn(options, connect, (error) => error instanceof McpCredentialRefused)).toBe('connected');
+    expect(used).toEqual(['revoked', 'token-abc']);
+    expect(counted.opened).toBe(1);
+    expect(keptSignIn(MCP, options.folder)?.accessToken).toBe('token-abc');
+    // a sign-in just made that the server refuses is not a stale one: it is reported, not retried
+    forgetSignIn(MCP, options.folder);
+    await expect(withSignIn(options, async () => { throw new McpCredentialRefused('HTTP 403'); }, (error) => error instanceof McpCredentialRefused)).rejects.toThrow('HTTP 403');
+    expect(counted.opened).toBe(2);
+  });
+
+  it('signs in at each step instead where its folder cannot be written, as in a sandbox, and says so', async () => {
+    const { options } = await signInSetup();
+    const blocker = join(mkdtempSync(join(tmpdir(), 'dai-sign-in-')), 'a-file');
+    writeFileSync(blocker, '');
+    const lines: string[] = [];
+    const signedIn = await signInOnce({ ...options, folder: join(blocker, 'sign-in'), log: (line) => lines.push(line) });
+    expect(signedIn).toMatchObject({ accessToken: 'token-abc', reused: false });
+    expect(lines.join('\n')).toMatch(/could not be kept in .*a-file.*asks again/);
+    expect(lines.join('\n')).not.toContain('token-abc');
+  });
+
+  it('tells a failed sign-in apart from a server that fails afterwards', async () => {
+    const declined = authorizationServer();
+    await expect(signInOnce({ mcpUrl: MCP, fetchImpl: declined.fetchImpl, openBrowser: declined.browser('deny'), folder: freshFolder() })).rejects.toBeInstanceOf(SignInFailed);
+  });
+
+  it('keeps it in the person\'s own configuration folder on Linux, macOS and Windows', () => {
+    expect(signInFolder({ XDG_CONFIG_HOME: '/cfg' }, '/home/ada', 'linux')).toBe(join('/cfg', 'documentation-ai-migrate', 'sign-in'));
+    expect(signInFolder({}, '/Users/ada', 'darwin')).toBe(join('/Users/ada', '.config', 'documentation-ai-migrate', 'sign-in'));
+    expect(signInFolder({ APPDATA: 'C:/Users/ada/AppData/Roaming' }, 'C:/Users/ada', 'win32')).toBe(join('C:/Users/ada/AppData/Roaming', 'documentation-ai-migrate', 'sign-in'));
+  });
+
+  it('reports a refused credential as one, without blaming an API key nobody set', async () => {
+    const refusing = (async () => new Response('{}', { status: 401 })) as unknown as typeof fetch;
+    const client = new McpClient({ url: MCP, token: 'expired', fetchImpl: refusing });
+    const error = await client.connect().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(McpCredentialRefused);
+    expect((error as Error).message).toMatch(/sign in afresh/);
   });
 });
 

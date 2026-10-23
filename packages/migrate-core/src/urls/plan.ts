@@ -8,6 +8,7 @@ import { writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Tree, TreePage } from '../nav/tree.js';
 import { pathFromTree } from '../nav/tree.js';
+import { PLAN_YAML } from '../session/edited-files.js';
 import { legalisePath, headingSlug, slugify, slugifySegment } from './slugger.js';
 import { classifyRedirect } from '@dai/content-contract';
 import GithubSlugger from 'github-slugger';
@@ -91,7 +92,7 @@ export function defaultUrlPlan(tree: Tree, opts: { mode?: UrlPlan['mode']; strip
   return { mode, scope: tree.scope, preserve: { strip_prefix: opts.stripPrefix, case: opts.case ?? 'preserve' }, restructure: { strategy: 'from-nav' }, unmigratedLinks: 'keep', pages, ...(erased.length ? { erased } : {}) };
 }
 
-export function writeUrlPlan(workspace: string, plan: UrlPlan): void { writeFileSync(join(workspace, 'plan', 'urls.yaml'), toYaml(plan), { mode: 0o600 }); }
+export function writeUrlPlan(workspace: string, plan: UrlPlan): void { writeFileSync(join(workspace, 'plan', 'urls.yaml'), toYaml(plan, PLAN_YAML), { mode: 0o600 }); }
 /**
  * An existing plan, plus the default entry for every migrating page it does not name. The
  * operator's entries are never changed; a new page whose default route collides with one of

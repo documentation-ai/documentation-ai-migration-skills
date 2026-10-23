@@ -23,7 +23,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 /** Stages and review commands a host may run. `mcp` itself is not among them. */
-export const RUNNABLE = ['init', 'project', 'fingerprint', 'discover', 'exclude', 'approve', 'acquire', 'inventory', 'plan', 'assets', 'convert', 'nav', 'verify', 'write', 'publish', 'accept', 'release', 'report', 'rebase'] as const;
+export const RUNNABLE = ['init', 'project', 'fingerprint', 'discover', 'exclude', 'approve', 'acquire', 'inventory', 'plan', 'assets', 'convert', 'nav', 'verify', 'write', 'publish', 'accept', 'release', 'report', 'rebase', 'sign-out'] as const;
 /** Folders of a workspace a host may read for review. The sealed source, the snapshot and the repository clone are not review material. */
 const READABLE = ['plan', 'report', 'quarantine'];
 const MAX_OUTPUT = 24_000;
@@ -48,7 +48,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: 'migration_run', title: 'Run a migration stage',
-    description: 'Runs one documentation-ai-migrate command in a workspace and returns what it printed. Stages stop and name what to fix rather than guess; never work around a stopped stage. `approve` and `accept` record a decision a named person made: call them only after that person has reviewed what the gate asks for and said yes, with their name in --by. `publish` opens the person\'s browser so they can sign in to Documentation.AI; tell them to look for it before you call it.',
+    description: 'Runs one documentation-ai-migrate command in a workspace and returns what it printed. Stages stop and name what to fix rather than guess; never work around a stopped stage. `approve` and `accept` record a decision a named person made: call them only after that person has reviewed what the gate asks for and said yes, with their name in --by. `project`, `assets` and `publish` need the person\'s Documentation.AI sign-in: the first of them in a migration opens their browser (tell them to look for it, and that Documentation.AI asks them to allow "Documentation.AI migrator"), and the later ones reuse it. `sign-out` deletes the kept sign-in.',
     inputSchema: {
       type: 'object', required: ['command', 'workspace'],
       properties: {

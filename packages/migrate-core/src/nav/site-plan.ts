@@ -14,7 +14,7 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stringify as toYaml } from 'yaml';
-import { readEditedYaml } from '../session/edited-files.js';
+import { PLAN_YAML, readEditedYaml } from '../session/edited-files.js';
 import type { NavbarLink, SiteBranding } from '../scrape/site-branding.js';
 import { hexColor } from '../scrape/site-branding.js';
 import { ICON_LIBRARIES, type IconLibrary } from '@dai/content-contract';
@@ -109,7 +109,7 @@ export function sitePlanPath(workspace: string): string {
 }
 
 export function writeSitePlan(workspace: string, plan: SitePlan): void {
-  writeFileSync(sitePlanPath(workspace), `${HEADER}${toYaml(plan)}`, { mode: 0o600 });
+  writeFileSync(sitePlanPath(workspace), `${HEADER}${toYaml(plan, PLAN_YAML)}`, { mode: 0o600 });
 }
 
 /** The reviewed plan, or undefined for a workspace planned before there was one (nothing beyond the name is then written). */

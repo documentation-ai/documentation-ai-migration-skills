@@ -36,14 +36,18 @@ export interface OpenapiCapture {
   hash?: string;
   documents: number;
   operations: number;
+  /** Schemas that contain themselves, cut where they repeat in the published copy. */
+  recursiveSchemas: string[];
 }
+
+const recursiveSchemas = (manifest: SpecManifest): string[] => [...new Set(manifest.documents.flatMap((document) => document.recursiveSchemas ?? []))];
 
 export async function captureOpenapi({ workspace, session, tree, supplied: suppliedSpecs, concurrency, fetcher }: OpenapiCaptureInput): Promise<OpenapiCapture> {
   const path = join(workspace, 'inventory', 'openapi.json');
   if (session.hashes.openapi) {
     if (!existsSync(path) || fileHash(path) !== session.hashes.openapi) throw new Error('OpenAPI manifest changed after acquisition');
     const pinned = readJson<SpecManifest>(path);
-    return { hash: session.hashes.openapi, documents: pinned.documents.length, operations: pinned.operations.length };
+    return { hash: session.hashes.openapi, documents: pinned.documents.length, operations: pinned.operations.length, recursiveSchemas: recursiveSchemas(pinned) };
   }
   const meta = readPlatformMeta(workspace);
   const supplied = suppliedSpecs.map((source) => /^https?:\/\//i.test(source) ? source : pathToFileURL(resolve(source)).toString());
@@ -66,7 +70,7 @@ export async function captureOpenapi({ workspace, session, tree, supplied: suppl
     writeJson(join(workspace, 'inventory', 'readme-api-catalog.json'), { url: catalogUrl, status: response.status, specs: catalog, ...(catalog.length ? {} : { issue: 'No public specs available; supply authorized exports with acquire --openapi <file-or-url>. API-reference completeness remains unproven.' }) });
   }
   const roots = [...new Set([...native, ...supplied, ...catalog])];
-  if (!roots.length) return { documents: 0, operations: 0 };
+  if (!roots.length) return { documents: 0, operations: 0, recursiveSchemas: [] };
   // native specs may reference anything in the frozen repository; a supplied spec only its own directory
   const localRoots = supplied.filter((url) => url.startsWith('file:')).map((url) => dirname(fileURLToPath(url)));
   if (native.some((url) => url.startsWith('file:'))) localRoots.push(frozenRoot);
@@ -87,5 +91,5 @@ export async function captureOpenapi({ workspace, session, tree, supplied: suppl
     });
     writeJson(join(workspace, 'inventory', 'platform-meta.json'), { ...meta, openapi: rewritten, openapiCaptured: true });
   }
-  return { hash: fileHash(path), documents: manifest.documents.length, operations: manifest.operations.length };
+  return { hash: fileHash(path), documents: manifest.documents.length, operations: manifest.operations.length, recursiveSchemas: recursiveSchemas(manifest) };
 }

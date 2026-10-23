@@ -52,6 +52,21 @@ export function isCommentOnlyExpression(value: unknown): boolean {
   return /^\s*(?:\/\*[\s\S]*?\*\/\s*|\/\/[^\n]*(?:\n\s*|$))+$/.test(String(value ?? ''));
 }
 
+/**
+ * A source's comment, written as the MDX comment the platform renders as nothing. It is kept, not
+ * dropped: no reader sees it, but to some sites a comment is not a note at all. Doc Detective reads
+ * its tests from comments (`{/* step {"goTo": "…"} *\/}`) and runs them against the page files, so
+ * a migration that dropped them dropped the tests. Block comments stay exactly as written; `//`
+ * lines become the block comments saying the same, since a line comment would also swallow the
+ * closing brace once the expression is written on one line.
+ */
+export function asMdxComment(value: string): string | undefined {
+  if (/^\s*(?:\/\*[\s\S]*?\*\/\s*)+$/.test(value)) return `{${value}}`;
+  const bodies = [...value.matchAll(/\/\*([\s\S]*?)\*\/|\/\/([^\n]*)/g)].map((match) => match[1] ?? `${match[2]} `);
+  if (!bodies.length || bodies.some((body) => body.includes('*/'))) return undefined;
+  return `{${bodies.map((body) => `/*${body}*/`).join(' ')}}`;
+}
+
 /** The highlighting language a code file's extension names, for a file included whole (`<Code src>`). */
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx', mjs: 'javascript', cjs: 'javascript', py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
@@ -784,9 +799,8 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
         return value ? [{ ...base, type: 'inlineHtml', value }] : [];
       }
       case 'mdxTextExpression':
-        // a source's comment is the author's note to other authors: it never reached a reader, so it is
-        // not content. This tool's own output writes its markers as comments, read back as written.
-        if (isCommentOnlyExpression(node.value)) return opts.platform === 'dai' ? [{ ...base, type: 'inlineHtml', value: `{${String(node.value)}}` }] : [];
+        // a comment mid-sentence is kept as written (see asMdxComment); no reader sees it
+        if (isCommentOnlyExpression(node.value)) { const comment = asMdxComment(String(node.value)); return comment ? [{ ...base, type: 'inlineHtml', value: comment }] : []; }
         return /^user\.[A-Za-z_][\w]*$/.test(String(node.value).trim())
           ? [{ ...base, type: 'inlineHtml', value: `{${String(node.value).trim()}}` }]
           : [{ ...base, type: 'inlineHtml', value: `{/* UNSUPPORTED EXPRESSION ${idOf(node, p)} */}` }];
@@ -1324,8 +1338,12 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
         return [{ ...base, type: 'component', name: 'esm', platform: opts.platform, props: { contentHash: idOf(node, p) }, children: [], styleDeps: ['expression:executable'] }];
       }
       case 'mdxFlowExpression':
-        // `{/* note */}` on a line of its own: the author's note, which no reader saw; not code to run
-        if (isCommentOnlyExpression(node.value) && opts.platform !== 'dai') return [];
+        // `{/* note */}` on a line of its own: kept as written (see asMdxComment), never run. A page this
+        // tool wrote reads its own comments back the same way, so the two compare as equal.
+        if (isCommentOnlyExpression(node.value)) {
+          const comment = asMdxComment(String(node.value));
+          return comment ? [{ ...base, type: 'paragraph', children: [{ id: `${base.id}:comment`, type: 'inlineHtml', value: comment }] }] : [];
+        }
         return [{ ...base, type: 'component', name: node.type === 'mdxjsEsm' ? 'esm' : 'expression', platform: opts.platform, props: { contentHash: idOf(node, p) }, children: [], styleDeps: ['expression:executable'] }];
       default:
         return unsupported(node);
