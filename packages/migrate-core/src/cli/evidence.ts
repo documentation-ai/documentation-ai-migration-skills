@@ -51,7 +51,8 @@ export function siteLinksForWorkspace(workspace: string, tree: Tree): SiteLinks 
   const sitemapPath = join(workspace, 'inventory', 'sitemaps.json');
   const sitemap = existsSync(sitemapPath) ? readJson<{ entries?: Array<{ url: string }> }>(sitemapPath).entries ?? [] : [];
   const sourcePages = [...(manifest?.pages ?? []).map((page) => page.location), ...(llms?.entries ?? []).map((entry) => entry.path), ...sitemap.map((entry) => entry.url)];
-  return siteLinksFor(tree, { unmigrated: readUrlPlan(workspace)?.unmigratedLinks ?? 'keep', sourcePages, hosts });
+  const plan = readUrlPlan(workspace);
+  return siteLinksFor(tree, { unmigrated: plan?.unmigratedLinks ?? 'keep', sourcePages, hosts, ...(plan?.sourceSite ? { sourceSite: plan.sourceSite } : {}) });
 }
 
 /**

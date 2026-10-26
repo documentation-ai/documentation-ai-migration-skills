@@ -32,6 +32,11 @@ export interface UrlPlan {
    * in report/unmigrated-links.json either way.
    */
   unmigratedLinks?: 'keep' | 'source';
+  /**
+   * Where a repository source is published (`https://buildwithfern.com`), which `source` sends those links to.
+   * A crawled source is its own origin and needs none; a repository states no address a link could be sent to.
+   */
+  sourceSite?: string;
   pages: UrlPlanPage[];
 }
 

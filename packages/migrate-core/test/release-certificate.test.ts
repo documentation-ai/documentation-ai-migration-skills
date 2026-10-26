@@ -34,7 +34,9 @@ describe('release certification', () => {
     session.approvals![3] = { ...prior, pinned: pinGateSubjects(workspace, 3) };
     session.approvals![4] = { ...prior, pinned: pinGateSubjects(workspace, 4) };
     writeSession(workspace, session);
-    const stdout = execFileSync(process.execPath, [join(root, 'node_modules/tsx/dist/cli.mjs'), join(root, 'packages/migrate-core/src/cli.ts'), 'release', '--workspace', workspace], { cwd: root, encoding: 'utf8' });
+    // release forgets the person's kept sign-in; run against a folder of the test's own, never the machine's real one
+    const config = mkdtempSync(join(tmpdir(), 'dai-release-config-'));
+    const stdout = execFileSync(process.execPath, [join(root, 'node_modules/tsx/dist/cli.mjs'), join(root, 'packages/migrate-core/src/cli.ts'), 'release', '--workspace', workspace], { cwd: root, encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: config, APPDATA: config } });
     expect(stdout).toContain('release certificate written');
     const certificate = JSON.parse(readFileSync(join(workspace, 'report', 'release-certificate.json'), 'utf8')) as { outputHash: string; previewReportHash: string; approvals: Record<string, unknown> };
     expect(certificate.outputHash).toBe(outputHash);

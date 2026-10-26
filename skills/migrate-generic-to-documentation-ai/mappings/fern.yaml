@@ -114,6 +114,137 @@ rules:
     tier: T3
     match: { name: Indent }
     children: unwrap
+  # Fern's own CodeGroup, which the target has too
+  - id: fern/code-group
+    tier: T1
+    match: { name: CodeGroup }
+    to: { name: CodeGroup }
+  # a <CodeBlock> holding more than its one code block (a comment beside it): the parser reads only the single-block case
+  - id: fern/code-block
+    tier: T3
+    match: { name: CodeBlock }
+    children: unwrap
+  # Fern's interactive tables are the table they hold: the sticky header, search box and paging are behaviour
+  - id: fern/sticky-table
+    tier: T3
+    match: { name: StickyTable }
+    children: unwrap
+  - id: fern/searchable-table
+    tier: T3
+    match: { name: SearchableTable }
+    children: unwrap
+    drop: [placeholder]
+  - id: fern/sticky-searchable-table
+    tier: T3
+    match: { name: StickySearchableTable }
+    children: unwrap
+    drop: [placeholder]
+  - id: fern/paginated-table
+    tier: T3
+    match: { name: PaginatedTable }
+    children: unwrap
+    drop: [pageSize, expandable]
+  - id: fern/paginated-searchable-table
+    tier: T3
+    match: { name: PaginatedSearchableTable }
+    children: unwrap
+    drop: [pageSize, expandable, placeholder]
+  # a changelog entry's tags, which Fern draws as chips under its heading
+  - id: fern/changelog-tags
+    tier: T4
+    match: { name: ChangelogTags }
+    handler: badge-to-span
+  - id: fern/badge
+    tier: T4
+    match: { name: Badge }
+    handler: badge-to-span
+    # the badge's colour and outline are presentation
+    drop: [intent, minimal, outlined]
+  # Fern's file tree, written as Mintlify's is: the tree a group of disclosures, a folder one, a file its name
+  - id: fern/files
+    tier: T2
+    match: { name: Files }
+    to: { name: ExpandableGroup }
+  - id: fern/folder
+    tier: T2
+    match: { name: Folder }
+    handler: fern-tree-folder
+    # highlighted tints a row of the tree; the target draws no tree
+    drop: [highlighted]
+  - id: fern/file
+    tier: T3
+    match: { name: File }
+    handler: fern-tree-file
+    drop: [highlighted]
+  - id: fern/prompt
+    tier: T3
+    match: { name: Prompt }
+    handler: fern-prompt
+    drop: [icon, singleLine]
+  # a version switcher is a set of alternatives a reader picks between, which is what tabs are
+  - id: fern/versions
+    tier: T2
+    match: { name: Versions }
+    to: { name: Tabs }
+    # the query parameter the selection is kept in
+    drop: [paramName]
+  - id: fern/version
+    tier: T2
+    match: { name: Version }
+    to: { name: Tab, props: { title: $title } }
+    # the tab shown first is the first version; which one Fern opens on is presentation
+    drop: [version, default]
+  # steps beside a pinned code panel: the steps and their code stay, in reading order
+  - id: fern/scroll-walkthrough
+    tier: T3
+    match: { name: ScrollWalkthrough }
+    to: { name: Steps }
+    drop: [layout, panelHeight, substepStyle]
+  - id: fern/download
+    tier: T3
+    match: { name: Download }
+    handler: download-to-link
+  - id: fern/anchor
+    tier: T3
+    match: { name: Anchor }
+    handler: anchor-before-content
+  # a local video embedded with <embed>, which the target plays as a Video; another embedded file is held
+  - id: fern/embed
+    tier: T2
+    match: { name: embed }
+    handler: embed-video
+    drop: [width, height]
+  # content for human readers only: on the page, it is simply content
+  - id: fern/llms-ignore
+    tier: T3
+    match: { name: llms-ignore }
+    children: unwrap
+  # raw HTML on a Fern page: a link around blocks (Fern's action card) carries its link onto its text,
+  # and the rest are wrappers around content the target carries
+  - id: fern/html-link-block
+    tier: T3
+    match: { name: a, props: { href: any } }
+    handler: html-link-block
+    drop: [className]
+  - id: fern/html-div
+    tier: T2
+    match: { name: div }
+    children: unwrap
+    drop: [className, style]
+  - id: fern/html-p
+    tier: T2
+    match: { name: p }
+    children: unwrap
+  - id: fern/html-strong
+    tier: T3
+    match: { name: strong }
+    children: unwrap
+    note: a block written as <strong> keeps its words; the bold is presentation
+  - id: fern/html-br
+    tier: T4
+    match: { name: br }
+    children: drop
+    note: a bare line break between blocks is spacing the blocks already have; verify treats it as chrome like script and style
   # import and export lines are MDX plumbing, never page content
   - id: fern/mdx-esm
     tier: T1

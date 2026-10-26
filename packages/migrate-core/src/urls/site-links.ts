@@ -20,6 +20,8 @@ export interface SiteLinks {
   hosts: string[];
   /** The live source's origin, where `source` sends a link to a page the migration does not write. */
   origin?: string;
+  /** Where a repository source is published, from the URL plan: `source` sends links there, and nothing else reads it. */
+  sourceSite?: string;
   /**
    * The path every known source page sits under (`/docs` for a site published beside a marketing
    * site). A link on the source host outside it — `/pricing`, `/contact/sales` — is to the other
@@ -114,7 +116,7 @@ function sourceBase(page: Tree['pages'][number]): string | undefined {
   return page.oldPath ? normalisePath(page.oldPath) : undefined;
 }
 
-export function siteLinksFor(tree: Tree, options: { unmigrated?: 'keep' | 'source'; sourcePages?: string[]; hosts?: string[] } = {}): SiteLinks {
+export function siteLinksFor(tree: Tree, options: { unmigrated?: 'keep' | 'source'; sourcePages?: string[]; hosts?: string[]; sourceSite?: string } = {}): SiteLinks {
   const routes: Record<string, string> = {};
   const sourceBases: Record<string, string> = {};
   const addRoute = (path: string, route: string, fromFilenames: boolean): void => {
@@ -147,7 +149,13 @@ export function siteLinksFor(tree: Tree, options: { unmigrated?: 'keep' | 'sourc
   // From the tree's own pages, not the sitemap: a site's sitemap lists the marketing pages beside
   // the docs too, which would widen the base to `/` and make every link on the host a docs link.
   const base = live ? commonBase(tree.pages.flatMap((page) => (page.oldPath ? [page.oldPath, ...(page.aliases ?? [])] : []))) : undefined;
-  return { routes, sourceBases, sourcePages, hosts, ...(origin ? { origin } : {}), ...(base !== undefined ? { base } : {}), unmigrated: options.unmigrated ?? 'keep' };
+  // An origin, never a path: the links sent there are already rooted at the source's own basepath.
+  let sourceSite: string | undefined;
+  if (options.sourceSite !== undefined) {
+    const stated = /^https?:\/\//i.test(options.sourceSite) ? options.sourceSite : `https://${options.sourceSite}`;
+    try { sourceSite = new URL(stated).origin; } catch { throw new Error(`plan/urls.yaml sourceSite ${JSON.stringify(options.sourceSite)} is not a site address`); }
+  }
+  return { routes, sourceBases, sourcePages, hosts, ...(origin ? { origin } : {}), ...(sourceSite ? { sourceSite } : {}), ...(base !== undefined ? { base } : {}), unmigrated: options.unmigrated ?? 'keep' };
 }
 
 /** How a link written in a source page resolves in the migrated site; undefined for a link that is not to the source site. */
@@ -199,7 +207,9 @@ export function siteLinkResolver(links: SiteLinks): SiteLinkResolver {
     // to nothing inside the migrated site; sent to the source it lands exactly where it did before.
     // `knownSourcePage` still travels with the outcome, so a path the source never declared is
     // reported rather than silently blessed.
-    if (!absolute && links.unmigrated === 'source' && links.origin) return { target: `${links.origin}${normalised}${suffix}`, kind: 'source', knownSourcePage };
+    // a repository's relative link resolves against a file path, which is no address on the published site
+    const site = links.origin ?? (url.startsWith('/') ? links.sourceSite : undefined);
+    if (!absolute && links.unmigrated === 'source' && site) return { target: `${site}${normalised}${suffix}`, kind: 'source', knownSourcePage };
     return { target: url, kind: 'kept', knownSourcePage };
   };
 }

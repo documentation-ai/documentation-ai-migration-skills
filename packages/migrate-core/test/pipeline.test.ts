@@ -259,6 +259,13 @@ describe('urls', () => {
     expect(repo('/docs/gone')).toBe('/docs/gone');
     expect(repo('/docs/customer_entity')).toBe('/docs/customer-entity');
     expect(repo('./customer_entity.md#name', 'docs/setup.md')).toBe('/docs/customer-entity#name');
+    // unless the URL plan states where the repository is published: then `source` sends links there, and routes still win
+    const published = siteLinkTarget(siteLinksFor(applyUrlPlan(repoTree, defaultUrlPlan(repoTree)), { unmigrated: 'source', sourceSite: 'docs.example/learn' }));
+    expect(published('/docs/gone#top')).toBe('https://docs.example/docs/gone#top');
+    expect(published('/docs/customer_entity')).toBe('/docs/customer-entity');
+    expect(published('./customer_entity.md#name', 'docs/setup.md')).toBe('/docs/customer-entity#name');
+    // a relative link resolves against the repository's file path, which is no address on the published site
+    expect(published('./assets/guide.pdf', 'docs/setup.md')).toBe('./assets/guide.pdf');
     // every link in a document follows, including those in table cells
     const doc = markdownToIr('See [gone](/docs/gone).\n\n| Page |\n| --- |\n| [entity](https://docs.example/docs/customer_entity) |\n', { platform: 'generic', file: 'p.md', pageId: 'p' });
     const links = JSON.stringify(retargetDocLinks(doc, toSource));
@@ -360,6 +367,9 @@ describe('gates', () => {
     const zero = markdownToIr('---\ntitle: T\n---\n\n<Image src="/a.png" alt="a" height={0} />\n', { platform: 'dai', file: 'guides/a.mdx', pageId: 'p' }).children[0];
     expect(zero.type === 'image' && zero.unreadableHeight).toBe('0');
     expect(unreadableImageDimensions(rem)).toEqual([expect.objectContaining({ pageId: 'p', src: '/a.png', attribute: 'width', stated: '12rem' })]);
+    // `24px` is a count of pixels with its unit written out, which the contract carries as 24
+    const px = markdownToIr('---\ntitle: T\n---\n\n<Image src="/a.png" alt="a" width="24px" height="24PX" />\n', { platform: 'dai', file: 'guides/a.mdx', pageId: 'p' }).children[0];
+    expect(px.type === 'image' ? [px.width, px.height, px.unreadableWidth] : []).toEqual([24, 24, undefined]);
     // The HTML adapter reads dimensions the same way, so a page's format cannot change its migrated size.
     const htmlBlocks = htmlToIr('<article><img src="/b.png" alt="b" width="100%" height="240"></article>', { platform: 'generic', file: 'b.html', articleSelector: 'article' }).children;
     const htmlImage = htmlBlocks.flatMap((block): ImageNode[] => {

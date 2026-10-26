@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { McpClient, McpToolError } from '../src/publish/mcp-client.js';
+import { McpClient, McpCredentialRefused, McpRequestBlocked, McpToolError } from '../src/publish/mcp-client.js';
 import { droppable, navigationPaths, navigationSteps, publishThroughMcp, withTemporaryGroup, type PublishProgress } from '../src/publish/publish.js';
 
 type Json = Record<string, unknown>;
@@ -175,5 +175,64 @@ describe('the Authoring MCP client', () => {
     await client.connect();
     await expect(client.call('update_site_config', { patches: [] })).rejects.toThrow(/duplicate_path: docs\/a is named twice/);
     expect(() => new McpClient({ token: 'k', url: 'http://mcp.example.com/mcp' })).toThrow(/must be https/);
+  });
+});
+
+describe('publishing past what the platform puts in the way', () => {
+  const migrated = { name: 'Acme', navigation: { groups: [{ group: 'Guides', pages: [{ title: 'Install', path: 'docs/install' }, { title: 'Use', path: 'docs/use' }] }] } };
+  const files = () => output({ 'documentation.json': JSON.stringify(migrated), 'docs/install.mdx': page('Install'), 'docs/use.mdx': page('Use') });
+
+  it('says the first deployment of a new working version is the project\'s copy, not the migration', async () => {
+    const lines: string[] = [];
+    await publishThroughMcp({ client: project(starter()), outputDir: files(), branch: 'migration/mig-1', commitMessage: 'm', log: (line) => lines.push(line) });
+    expect(lines.join('\n')).toMatch(/first deployment is not the migration/);
+  });
+
+  it('names the page the firewall refuses, keeps what was sent before it, and never calls it a sign-in problem', async () => {
+    const platform = project(starter());
+    const client = { call: async (tool: string, args: Json) => { if (args.path === 'docs/use.mdx') throw new McpRequestBlocked('the firewall in front of the Authoring MCP server refused the request for its content'); return platform.call(tool, args); } };
+    let saved: PublishProgress | undefined;
+    await expect(publishThroughMcp({ client, outputDir: files(), branch: 'migration/mig-1', commitMessage: 'm', saveProgress: (progress) => { saved = progress; } })).rejects.toThrow(/^docs\/use\.mdx: the firewall[\s\S]*exclude --path/);
+    expect(Object.keys(saved?.sent ?? {})).toEqual(['docs/install.mdx']);
+  });
+
+  it('waits when the project\'s repository asks for a pause, then carries on', async () => {
+    const platform = project(starter());
+    let refusals = 1;
+    const client = { call: async (tool: string, args: Json) => { if (tool === 'publish' && refusals-- > 0) throw new McpToolError(tool, 'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.'); return platform.call(tool, args); } };
+    const waits: number[] = [];
+    const result = await publishThroughMcp({ client, outputDir: files(), branch: 'migration/mig-1', commitMessage: 'm', sleep: async (ms) => { waits.push(ms); } });
+    expect(result.status).toBe('published');
+    expect(waits).toEqual([60_000]);
+    expect(platform.published).toEqual(['migration/mig-1']);
+  });
+
+  it('reads a publication that outlasted the wait from what the working version still holds unpublished', async () => {
+    const timeout = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+    const run = (pending: number) => {
+      const platform = project(starter());
+      const client = { call: async (tool: string, args: Json) => { if (tool === 'publish') throw timeout; if (tool === 'list_changes') return { structured: { total: pending, changes: [] }, text: '' } as never; return platform.call(tool, args); } };
+      return publishThroughMcp({ client, outputDir: files(), branch: 'migration/mig-1', commitMessage: 'm' });
+    };
+    await expect(run(0)).resolves.toMatchObject({ status: 'published' });
+    await expect(run(3)).rejects.toThrow(/aborted due to timeout/);
+  });
+});
+
+describe('the Authoring MCP client\'s refusals', () => {
+  const answering = (status: number, body: string, type: string) => (async (_url: string, init: RequestInit) => {
+    const message = JSON.parse(init.body as string) as Json;
+    if (message.method === 'initialize') return new Response(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (message.method === 'notifications/initialized') return new Response(null, { status: 202 });
+    return new Response(body, { status, headers: { 'content-type': type } });
+  }) as unknown as typeof fetch;
+
+  it('tells the firewall\'s "Blocked" page from a credential the server turned away', async () => {
+    const blocked = new McpClient({ token: 'k', fetchImpl: answering(403, '<!DOCTYPE html><html><head><title>Blocked</title></head></html>', 'text/html'), requestsPerMinute: 60_000 });
+    await blocked.connect();
+    await expect(blocked.call('create_page', { path: 'a.mdx', content: 'x' })).rejects.toBeInstanceOf(McpRequestBlocked);
+    const refused = new McpClient({ token: 'k', fetchImpl: answering(403, '{"error":"forbidden"}', 'application/json'), requestsPerMinute: 60_000 });
+    await refused.connect();
+    await expect(refused.call('create_page', { path: 'a.mdx', content: 'x' })).rejects.toBeInstanceOf(McpCredentialRefused);
   });
 });
