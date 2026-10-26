@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { createHash } from 'node:crypto';
 import { extname, join } from 'node:path';
 import { PutObjectCommand, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
-import type { AssetEntry, AssetManifest } from './manifest.js';
+import type { AssetEntry, AssetManifest, UploadRequest } from './manifest.js';
 import { writeManifest } from './manifest.js';
 
 /** The one method of the Authoring MCP client the dai-mcp provider needs, so tests can stand in for the server. */
@@ -424,7 +424,27 @@ async function hostThroughUploadPage(
   }
   request = { ...request, folder, files: waiting.map(({ name }) => name) };
   if (options.manifest) options.manifest.uploadRequest = request;
-  for (const { entry, name, why } of waiting) fail(entry, `waiting to be uploaded (${why}): drop ${name} from ${folder} on ${request.url}, then run assets again`);
+  for (const { entry, name, why } of waiting) fail(entry, `waiting to be uploaded (${why}) as ${name}`);
+}
+
+/**
+ * What the person does when files wait for the upload page, said once and last, where a terminal
+ * leaves it: a link and a folder repeated on every one of 74 lines above were the lines nobody read.
+ */
+export function uploadSteps(request: UploadRequest, project?: string, now: Date = new Date()): string {
+  const files = request.files.filter((name) => existsSync(join(request.folder, name)));
+  const bytes = files.reduce((total, name) => total + statSync(join(request.folder, name)).size, 0);
+  const size = bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(0)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  const minutes = Math.max(0, Math.round((Date.parse(request.expiresAt) - now.getTime()) / 60_000));
+  return [
+    `${files.length} file(s) have no public address, so they reach ${project ? `"${project}"` : 'the project'} through its upload page, once:`,
+    `  1. Open ${request.url}`,
+    `     (it works until ${request.expiresAt.slice(11, 16)} UTC, about ${minutes} minutes from now; running assets again after that issues a new link)`,
+    `     (the page uploads as whoever is signed in to the dashboard in that browser: an account that can edit ${project ? `"${project}"` : 'the project'})`,
+    `  2. Drop every file from this folder onto that page: ${request.folder}`,
+    `     (${files.length} file(s), ${size}; keep the page open until it says it has finished: closing it stops the upload)`,
+    '  3. Run assets again: it finds them in the library by name and content, and asks only for any still missing',
+  ].join('\n');
 }
 
 export function s3Client(opts: S3StorageOptions): S3Client {

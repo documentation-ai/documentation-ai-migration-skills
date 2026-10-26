@@ -372,6 +372,72 @@ const HANDLERS: Record<string, RestructureHandler> = {
     blocks.push({ id: `${node.id}:code`, type: 'code', value, lang: 'text' });
     return { blocks, lossy: ['the prompt\'s "open in editor" actions are not carried; the text stays copyable'] };
   } },
+  /** Fern's prompt states its introducing line as a title; the text to copy is a code block, as Mintlify's prompt is. */
+  'fern-prompt': { reads: ['title', 'actions', 'hidePrompt'], run: (node, rule, ctx) => {
+    const title = typeof node.props.title === 'string' ? node.props.title.trim() : '';
+    const result = HANDLERS['prompt-to-code'].run({ ...node, props: { ...node.props, description: title } }, rule, ctx);
+    const hidden = node.props.hidePrompt === true ? ['Fern showed only this prompt\'s title row; its text is shown as the code block'] : [];
+    return { ...result, lossy: [...(result.lossy ?? []), ...hidden] };
+  } },
+  /**
+   * A folder in Fern's file tree is a disclosure titled with its name and open as authored. The
+   * comment the tree shows beside the name is authored text, so it leads the disclosure's body.
+   */
+  'fern-tree-folder': { reads: ['name', 'defaultOpen', 'comment'], run: (node, rule) => {
+    const name = typeof node.props.name === 'string' ? node.props.name : '';
+    if (!name) return quarantined(node, 'a tree folder states no name');
+    const comment = typeof node.props.comment === 'string' && node.props.comment.trim() ? node.props.comment.trim() : undefined;
+    const props: Record<string, string | number | boolean | null> = { title: name };
+    if (node.props.defaultOpen !== undefined && node.props.defaultOpen !== null) props.defaultOpen = node.props.defaultOpen;
+    const children: Block[] = comment ? [{ id: `${node.id}:comment`, type: 'paragraph', children: [{ id: `${node.id}:comment:t`, type: 'text', value: comment }] }, ...node.children] : node.children;
+    return { blocks: [{ id: node.id, type: 'dai', name: 'Expandable', props, children, rule: rule.id }] };
+  } },
+  /** A file in Fern's tree: its name as code, linked where the tree links it, then the comment the tree shows beside it. */
+  'fern-tree-file': { reads: ['name', 'href', 'comment'], run: (node) => {
+    const name = typeof node.props.name === 'string' ? node.props.name : '';
+    if (!name) return quarantined(node, 'a tree file states no name');
+    const href = typeof node.props.href === 'string' && node.props.href.trim() ? node.props.href.trim() : undefined;
+    const comment = typeof node.props.comment === 'string' && node.props.comment.trim() ? node.props.comment.trim() : undefined;
+    const code: Inline = { id: `${node.id}:t`, type: 'inlineCode', value: name };
+    const children: Inline[] = [href ? { id: `${node.id}:link`, type: 'link', url: href, children: [code] } : code];
+    if (comment) children.push({ id: `${node.id}:comment`, type: 'text', value: ` ${comment}` });
+    return { blocks: [{ id: node.id, type: 'paragraph', children }] };
+  } },
+  /**
+   * A raw-HTML link around blocks: Fern's action card (`<a className="fern-card" href>`) around a
+   * heading and a button label. The whole card is the link, so its headings stay headings and the
+   * text beside them becomes the link a reader followed.
+   */
+  'html-link-block': { reads: ['href'], run: (node) => {
+    const href = typeof node.props.href === 'string' && node.props.href.trim() ? node.props.href.trim() : undefined;
+    if (!href) return quarantined(node, 'a link around blocks states no href');
+    const prose = node.children.filter((child) => child.type === 'paragraph');
+    if (!prose.length || prose.some((child) => child.type === 'paragraph' && child.children.some((c) => c.type === 'link'))) return quarantined(node, 'a link around blocks holds no text of its own to carry the link');
+    const blocks = node.children.map((child): Block => (child.type === 'paragraph' ? { ...child, children: [{ id: `${child.id}:link`, type: 'link', url: href, children: child.children }] } : child));
+    return { blocks };
+  } },
+  /** Fern's `<Anchor id>` names a link target around any content: the target is the anchor element the renamed-heading shims use, and the content follows it. */
+  'anchor-before-content': { reads: ['id'], run: (node) => {
+    const id = typeof node.props.id === 'string' ? node.props.id.trim() : '';
+    if (!id) return quarantined(node, 'an anchor states no id');
+    return { blocks: [{ id: node.id, type: 'paragraph', children: [{ id: `${node.id}-anchor`, type: 'inlineHtml', value: `<a id="${id.replace(/"/g, '&quot;')}"></a>` }] }, ...node.children] };
+  } },
+  /** An `<embed>` of a video file is a video; any other embedded file has no counterpart here and is held. */
+  'embed-video': { reads: ['src', 'type'], run: (node, rule) => {
+    const src = typeof node.props.src === 'string' && node.props.src.trim() ? node.props.src.trim() : undefined;
+    const type = typeof node.props.type === 'string' ? node.props.type.trim() : '';
+    if (!src || !/^video\//i.test(type)) return quarantined(node, `an <embed> of ${type || 'an unstated type'} has no counterpart; only a video becomes a Video`);
+    return { blocks: [{ id: node.id, type: 'dai', name: 'Video', props: { src }, children: [], rule: rule.id }] };
+  } },
+  /** A download is the link to its file, labelled with the text the reader clicked. */
+  'download-to-link': { reads: ['src'], run: (node) => {
+    const src = typeof node.props.src === 'string' && node.props.src.trim() ? node.props.src.trim() : undefined;
+    if (!src) return quarantined(node, 'a download names no single file (src)');
+    const label = node.children.flatMap((child) => (child.type === 'paragraph' ? child.children : []));
+    if (node.children.some((child) => child.type !== 'paragraph')) return quarantined(node, 'a download labelled with more than text');
+    const children: Inline[] = label.length ? label : [{ id: `${node.id}:t`, type: 'text', value: src }];
+    return { blocks: [{ id: node.id, type: 'paragraph', children: [{ id: `${node.id}:link`, type: 'link', url: src, children }] }] };
+  } },
   /**
    * A Tailwind grid wrapper (`<div className="grid sm:grid-cols-2 gap-4">`) is a column layout, and
    * the platform has a component for exactly that. Unwrapped like any other layout div, the cards of
@@ -521,24 +587,26 @@ export class RulesEngine {
     return { ...doc, children: resolved };
   }
 
-  resolveBlocks(blocks: Block[], pageId: string): Block[] {
+  /** `depth` counts levels as inventory's walkBlocks does, because a cluster's signature includes it. */
+  resolveBlocks(blocks: Block[], pageId: string, depth = 0): Block[] {
     const out: Block[] = [];
     for (const b of blocks) {
       if (b.type === 'component') {
         // children first so nested source components are resolved before the parent rule sees them
-        // the plan was keyed on the raw signature at inventory time, so compute it before children are resolved
-        const sig = signatureOf(b);
-        const withKids: ComponentNode = { ...b, children: this.resolveBlocks(b.children, pageId) };
+        // the plan was keyed on the raw signature at inventory time, so compute it before children are resolved,
+        // at the depth inventory saw it: read at depth 0, a nested component missed the decision made for it
+        const sig = signatureOf(b, depth);
+        const withKids: ComponentNode = { ...b, children: this.resolveBlocks(b.children, pageId, depth + 1) };
         out.push(...this.resolveComponent(withKids, pageId, sig, b));
       } else if (b.type === 'list') {
         this.opts.ledger.identical(pageId, b.id);
-        out.push({ ...b, children: b.children.map((li) => { this.opts.ledger.identical(pageId, li.id); return { ...li, children: this.resolveBlocks(li.children, pageId) }; }) });
+        out.push({ ...b, children: b.children.map((li) => { this.opts.ledger.identical(pageId, li.id); return { ...li, children: this.resolveBlocks(li.children, pageId, depth + 1) }; }) });
       } else if (b.type === 'blockquote' || b.type === 'footnoteDefinition') {
         // a container whose children are content in their own right: each gets its own disposition
         this.opts.ledger.identical(pageId, b.id);
-        out.push({ ...b, children: this.resolveBlocks(b.children, pageId) });
+        out.push({ ...b, children: this.resolveBlocks(b.children, pageId, depth + 1) });
       } else if (b.type === 'dai') {
-        out.push({ ...b, children: this.resolveBlocks(b.children, pageId) });
+        out.push({ ...b, children: this.resolveBlocks(b.children, pageId, depth + 1) });
       } else if (b.type === 'html') {
         const value = sanitizeHtmlToJsx(b.value, { iframeHosts: this.opts.iframeHosts });
         if (!value) {

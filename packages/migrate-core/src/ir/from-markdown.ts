@@ -257,6 +257,8 @@ function preprocessSegment(source: string, platform: string): string {
   out = out.replace(/\{\{\s*snippet\.([^}]+?)\s*\}\}/g, (_, token) => `<snippetRef token="${quoteAttr(String(token).trim())}" />`);
   if (platform === 'gitbook') out = gitbookMdxCompatible(gitbookLiteralBraces(gitbookTableAsterisks(gitbookLiquidBlocks(gitbookMathBraces(gitbookHtmlCodeBlocks(gitbookLiteralAngles(gitbookEmojiShortcodes(out))))))));
   if (platform === 'readme') out = readmeMdxCompatible(out);
+  // Fern renders `$$…$$` with KaTeX, as GitBook does: its braces are TeX, not MDX
+  if (platform === 'fern') out = gitbookMathBraces(out);
   return out;
 }
 
@@ -937,6 +939,16 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
         } else props[attr.name] = literal;
       }
     }
+    // A video's address is its src or, as a browser reads it, its first <source>; the sources are that
+    // address and nothing else, so they are not children. JSX spells the HTML attribute autoPlay.
+    let children = node.children ?? [];
+    if (opts.platform !== 'dai' && String(node.name).toLowerCase() === 'video') {
+      const isSource = (child: any) => child?.type === 'mdxJsxFlowElement' && String(child.name).toLowerCase() === 'source';
+      const first = children.find(isSource)?.attributes?.find((a: any) => a.type === 'mdxJsxAttribute' && a.name === 'src' && typeof a.value === 'string');
+      if (props.src === undefined && first) props.src = first.value;
+      if (props.src !== undefined) children = children.filter((child: any) => !isSource(child));
+      if (props.autoPlay !== undefined && props.autoplay === undefined) { props.autoplay = props.autoPlay; delete props.autoPlay; }
+    }
     // A grid wrapper is a layout the platform can express, unlike every other utility class on a div:
     // the marker lets a mapping rule tell the two apart without reading class names itself.
     if (opts.platform !== 'dai' && String(node.name).toLowerCase() === 'div') {
@@ -946,7 +958,7 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
     return {
       id: idOf(node, path), src: srcOf(node), type: 'component',
       name: node.name ?? 'mdxFragment', platform: opts.platform, props,
-      children: blocks(node.children ?? [], [...path, 0]),
+      children: blocks(children, [...path, 0]),
       styleDeps: styleDeps.length ? styleDeps : undefined,
     };
   };
@@ -1173,7 +1185,9 @@ export function markdownToIr(source: string, opts: MarkdownAdapterOptions): DocI
     }
     if (node.name === 'Button') {
       const href = attr('href');
-      const text = inline(node.children ?? [], [...path, 0]);
+      // a label written on lines of its own is a paragraph MDX reads inside the button: its words are the label
+      const words = (node.children ?? []).flatMap((child: any) => (child.type === 'paragraph' ? child.children ?? [] : [child]));
+      const text = inline(words, [...path, 0]);
       const label = text.length ? text : [{ id: `${id}:t`, type: 'text' as const, value: href ?? '' }];
       return [{ id, src: srcOf(node), type: 'paragraph', children: href ? [{ id: `${id}:link`, type: 'link', url: href, children: label }] : label }];
     }

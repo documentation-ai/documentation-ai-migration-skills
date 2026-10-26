@@ -22,6 +22,13 @@ export class McpToolError extends Error {
 /** The server turned the credential away: a sign-in that expired or was revoked, or a key that is wrong. */
 export class McpCredentialRefused extends Error {}
 
+/**
+ * The firewall in front of the server refused the request for what it carried, answering 403 with
+ * a "Blocked" page: documentation that shows a shell command (`'curl -f -s …`) reads to it as an
+ * attack. The credential is fine, so signing in again changes nothing; the content has to go another way.
+ */
+export class McpRequestBlocked extends Error {}
+
 export interface McpClientOptions {
   url?: string;
   token: string;
@@ -80,6 +87,7 @@ export class McpClient {
         await this.sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 2000 * attempt);
         continue;
       }
+      if (response.status === 403 && /<title>\s*Blocked\s*<\/title>/i.test(await response.clone().text())) throw new McpRequestBlocked('the firewall in front of the Authoring MCP server refused the request for its content (HTTP 403, a "Blocked" page); the sign-in is fine');
       if (response.status === 401 || response.status === 403) throw new McpCredentialRefused(`the Authoring MCP server refused the credential (HTTP ${response.status}). Run the command again to sign in afresh; if DAI_API_KEY is set, check that it is this project's key and has not been revoked`);
       if (response.status === 404 && this.sessionId) throw new Error('the Authoring MCP session expired; run publish again, it continues where it stopped');
       if (!response.ok) throw new Error(`Authoring MCP server answered HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);

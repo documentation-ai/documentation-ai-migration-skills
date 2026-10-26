@@ -134,7 +134,7 @@ function sameAddress(url: string): string {
  * styling change, never a content change. ParamField's `type` is the one content-bearing `type`; its rule copies it and the
  * serialised-output gate proves it survives, so the comparator need not.
  */
-const VISUAL_PROPS = new Set(['arrow', 'class', 'className', 'color', 'columns', 'cols', 'defaultOpen', 'expanded', 'height', 'horizontal', 'icon', 'iconType', 'intent', 'kind', 'open', 'style', 'theme', 'titleType', 'type', 'width']);
+const VISUAL_PROPS = new Set(['arrow', 'class', 'className', 'color', 'columns', 'cols', 'defaultOpen', 'expanded', 'height', 'horizontal', 'icon', 'iconType', 'intent', 'kind', 'open', 'playsInline', 'style', 'theme', 'titleType', 'tocDepth', 'type', 'variant', 'width']);
 /**
  * Attributes that grant an embed a capability rather than state content: what an iframe may do, and
  * what it may be trusted with. The sanitizer strips every one of them by policy before any rule
@@ -353,7 +353,9 @@ function promptShape(block: { name: string; props: Record<string, string | numbe
   // canonicalising it. Matching only the contract's spelling meant it never fired on the source and
   // every prompt page quarantined over a shape the comparison was built to reconcile.
   if (block.name?.toLowerCase() !== 'prompt') return undefined;
-  const description = typeof block.props.description === 'string' ? block.props.description.trim() : '';
+  // Fern states the line introducing a prompt as its title, which the conversion writes as that line
+  const stated = 'platform' in block && block.platform === 'fern' ? block.props.title : block.props.description;
+  const description = typeof stated === 'string' ? stated.trim() : '';
   // The conversion flattens the prompt with blocksText, so this reads it with blocksText too. Reading
   // it any other way would drop whatever that function keeps and this one does not - a prompt written
   // as a numbered list lost its steps here while the output carried them, and the page quarantined.
@@ -473,6 +475,83 @@ function colorSwatchShape(block: { name: string; props: Record<string, string | 
     type: 'component', props: ordered({ title: label || value }),
     children: value ? [{ type: 'code', lang: 'css', meta: '', title: '', value }] : [],
   }];
+}
+
+/**
+ * Fern's wrappers that hold content and state none of their own: the highlight frames around a live
+ * demo, layout HTML, the interactive tables (sticky header, search, paging are behaviour), human-only
+ * content, and a code block beside a comment. The conversion lets their content stand where they
+ * stood, so they read as that content; every block inside is still compared one for one.
+ */
+const FERN_WRAPPERS = new Set(['div', 'p', 'strong', 'llms-ignore', 'CodeBlock', 'StickyTable', 'SearchableTable', 'StickySearchableTable', 'PaginatedTable', 'PaginatedSearchableTable']);
+
+type ShapedBlock = { name: string; props: Record<string, string | number | boolean | null>; children: Block[]; platform?: string };
+const isFern = (block: ShapedBlock): boolean => block.platform === 'fern';
+const statedText = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
+
+/** A Fern wrapper reads as what it wraps. */
+function fernWrapperShape(block: ShapedBlock): FidelityValue[] | undefined {
+  return isFern(block) && FERN_WRAPPERS.has(block.name) ? blocksShape(block.children, false) : undefined;
+}
+
+/** Fern's `<Anchor id>` names a link target around content: the target is an anchor shim, which states nothing, and the content follows it. */
+function fernAnchorShape(block: ShapedBlock): FidelityValue[] | undefined {
+  return isFern(block) && block.name === 'Anchor' && statedText(block.props.id) ? blocksShape(block.children, false) : undefined;
+}
+
+/** A folder in Fern's file tree is a disclosure titled with its name; the comment beside the name leads its body. */
+function fernFolderShape(block: ShapedBlock): FidelityValue[] | undefined {
+  const name = isFern(block) && block.name === 'Folder' ? statedText(block.props.name) : undefined;
+  if (!name) return undefined;
+  const comment = statedText(block.props.comment);
+  return [{ type: 'component', props: ordered({ title: name }), children: [...(comment ? [{ type: 'paragraph', children: [{ type: 'text', value: comment }] } as FidelityValue] : []), ...blocksShape(block.children, false)] }];
+}
+
+/** A file in Fern's tree is its name as code, linked where the tree links it, then the comment beside it. */
+function fernFileShape(block: ShapedBlock): FidelityValue[] | undefined {
+  const name = isFern(block) && block.name === 'File' && !block.children.length ? statedText(block.props.name) : undefined;
+  if (!name) return undefined;
+  const href = statedText(block.props.href);
+  const comment = statedText(block.props.comment);
+  const code: Inline = { id: 'n', type: 'inlineCode', value: name };
+  const row: Inline[] = [href ? { id: 'l', type: 'link', url: href, children: [code] } : code, ...(comment ? [{ id: 'c', type: 'text', value: ` ${comment}` } as Inline] : [])];
+  return [{ type: 'paragraph', children: inlineShape(row) }];
+}
+
+/** Fern's version switcher is a set of tabs, each titled as its version is; the query parameter and the default are how it opens. */
+function fernVersionsShape(block: ShapedBlock): FidelityValue[] | undefined {
+  if (!isFern(block)) return undefined;
+  if (block.name === 'Versions') return [{ type: 'component', props: ordered({}), children: blocksShape(block.children, false) }];
+  const title = block.name === 'Version' ? statedText(block.props.title) : undefined;
+  return title ? [{ type: 'component', props: ordered({ title }), children: blocksShape(block.children, false) }] : undefined;
+}
+
+/** A download is the link to its file, labelled with the text the reader clicked. */
+function fernDownloadShape(block: ShapedBlock): FidelityValue[] | undefined {
+  const src = isFern(block) && block.name === 'Download' ? statedText(block.props.src) : undefined;
+  if (!src || block.children.some((child) => child.type !== 'paragraph')) return undefined;
+  const label = block.children.flatMap((child) => (child.type === 'paragraph' ? child.children : []));
+  return [{ type: 'paragraph', children: inlineShape([{ id: 'l', type: 'link', url: src, children: label.length ? label : [{ id: 't', type: 'text', value: src }] }]) }];
+}
+
+/** A raw-HTML link around blocks (Fern's action card): its headings stay headings and its text becomes the link. */
+function fernLinkBlockShape(block: ShapedBlock): FidelityValue[] | undefined {
+  const href = isFern(block) && block.name === 'a' ? statedText(block.props.href) : undefined;
+  if (!href || !block.children.length) return undefined;
+  return blocksShape(block.children.map((child): Block => (child.type === 'paragraph' ? { ...child, children: [{ id: `${child.id}:link`, type: 'link', url: href, children: child.children }] } : child)), false);
+}
+
+/** A badge, and a changelog entry's tags, are the words they show; whether the badge is outlined or minimal is how it is drawn. */
+function fernBadgeShape(block: ShapedBlock): FidelityValue[] | undefined {
+  if (!isFern(block) || block.name !== 'Badge') return undefined;
+  return [{ type: 'component', props: ordered({}), children: blocksShape(block.children, false) }];
+}
+
+/** A Frame around anything but pictures holds that content, its caption the italic line under it, as the conversion writes it. */
+function fernFramedContentShape(block: ShapedBlock): FidelityValue[] | undefined {
+  if (!isFern(block) || block.name !== 'Frame') return undefined;
+  const caption = typeof block.props.caption === 'string' ? cleanText(block.props.caption) : '';
+  return [...blocksShape(block.children, false), ...(caption ? [captionLine(caption)] : [])];
 }
 
 /** An `<a id="x"></a>` with no content: a link target, never something the page says. */
@@ -612,6 +691,11 @@ function blocksShapeRaw(blocks: Block[], exactComponents: boolean): FidelityValu
           const keep = Object.keys(block.props).length === Object.keys(exact.props as Record<string, unknown>).length ? ordered(block.props) : exact.props;
           return [{ type: 'component', name: block.name, props: keep, children: blocksShape(exact.children, true) }];
         }
+        // Fern's own spellings first: `div`, `a` and `Frame` mean what the conversion of a Fern page reads them as
+        for (const read of [fernWrapperShape, fernAnchorShape, fernFolderShape, fernFileShape, fernVersionsShape, fernDownloadShape, fernLinkBlockShape, fernBadgeShape]) {
+          const shaped = read(block);
+          if (shaped) return shaped;
+        }
         const framed = framedImageShape(block);
         if (framed) return framed;
         const anchored = anchorHeadingShape(block);
@@ -620,6 +704,8 @@ function blocksShapeRaw(blocks: Block[], exactComponents: boolean): FidelityValu
         if (prompt) return prompt;
         const embed = framedEmbedShape(block);
         if (embed) return embed;
+        const fernFramed = fernFramedContentShape(block);
+        if (fernFramed) return fernFramed;
         for (const read of [treeFileShape, cardSourceShape, colorRowShape, htmlHeadingShape, htmlRuleShape, renamedLabelShape, colorSwatchShape]) {
           const shaped = read(block);
           if (shaped) return shaped;

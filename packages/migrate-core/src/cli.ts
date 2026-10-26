@@ -99,7 +99,7 @@ import { walkBlocks, inlineText, renderedText as anchorText, type Block } from '
 import { applyBlockExclusions, assertExclusionsPermitted, blockExclusionsPath, readBlockExclusions, unmatchedBlockExclusions } from './ir/exclusions.js';
 import { describeUnreadableDimension, unreadableImageDimensions } from './ir/dimensions.js';
 import { readManifest, referenceTally, rewriteAssetRefs, dropExcludedAssets, d360MediaResolver, repoAssetResolver, repoAssetRoots, resolveAssetUrl, SITE_BRANDING_PAGE } from './assets/manifest.js';
-import { assetFoldersElsewhere, s3StorageFromEnv, s3StorageProblems, type AssetProviderOptions } from './assets/providers.js';
+import { assetFoldersElsewhere, s3StorageFromEnv, s3StorageProblems, uploadSteps, type AssetProviderOptions } from './assets/providers.js';
 import { assertAssetsHosted, runAssetsStage, UnhostedAssetsError, type AssetsStageResult } from './assets/stage.js';
 import { runGates, canonicalHash, gateSatisfied, previewPushBlockers, releaseBlockers, waivedExactnessGates, type GateResult, type SourceEvidence } from './verify/gates.js';
 import { loadRawSourcePages, rawSourceIr, type RawSourcePage } from './verify/source-truth.js';
@@ -614,6 +614,13 @@ async function main() {
             sourceManifest ??= nativeSourceManifest({ ...captureContext, platform: adapter.platform, kind: 'repo', root, freeze: frozen! });
             const read = adapter.read(root);
             tree = read.tree;
+            // A page the config places only under a hidden entry is published and unlisted, as a crawled
+            // site's is. One placed nowhere at all is left unmarked, so nav still stops on it.
+            if (tree.navigation?.length) {
+              const shown = placedPageIds(tree.navigation);
+              const stated = placedPageIds(tree.navigation, true);
+              for (const page of tree.pages) if (!page.navMembership && stated.has(page.id) && !shown.has(page.id)) page.navMembership = 'unlisted';
+            }
             Object.assign(meta, read.meta);
             for (const note of read.notes) console.log(`· ${note}`);
             ok(read.summary);
@@ -1342,7 +1349,8 @@ async function main() {
       } catch (error) {
         if (!(error instanceof UnhostedAssetsError)) throw error;
         markStage(workspace, 'assets', 'failed', `${error.entries.length} assets without a hosted URL`);
-        fail(error.message);
+        const upload = readManifest(workspace).uploadRequest;
+        fail(upload?.files.length ? `${error.message}\n\n${uploadSteps(upload, s.target.projectName)}` : error.message);
       } finally {
         await mcpClient?.close();
       }
@@ -1509,7 +1517,12 @@ async function main() {
       requireFrozenInputs(workspace, s);
       const tree = applyUrlPlan(readTree(workspace), readUrlPlan(workspace) ?? defaultUrlPlan(readTree(workspace)));
       const docJsonPath = join(workspace, 'output', 'documentation.json');
-      const existing = existsSync(docJsonPath) ? readJson<Record<string, unknown>>(docJsonPath) : { name: 'Documentation', initialRoute: tree.pages.find((p) => p.migrate && p.newPath)?.newPath ?? '' };
+      // The site opens on its first page that was written: a page held back has no file, and the
+      // platform refuses a documentation.json whose initialRoute its navigation does not name.
+      const written = (route: string): boolean => existsSync(join(workspace, 'output', `${route}.mdx`));
+      const firstPage = tree.pages.find((p) => p.migrate && p.newPath)?.newPath;
+      const firstWritten = tree.pages.find((p) => p.migrate && p.newPath && written(p.newPath))?.newPath ?? '';
+      const existing = existsSync(docJsonPath) ? readJson<Record<string, unknown>>(docJsonPath) : { name: 'Documentation', initialRoute: firstWritten };
       const meta = readPlatformMeta(workspace);
       // the connected specs ship with the output; a reference the source repository cannot satisfy stops the stage instead of leaving the group without its API
       for (const ref of meta.openapiCaptured ? [] : meta.openapi ?? []) {
@@ -1536,7 +1549,8 @@ async function main() {
         if (!unlisted.length) fail('--place-unlisted was given, but the source navigation already places every migrated page');
         tree.unlistedPlacement = { strategy: 'source-path', approvedBy: by, approvedAt: new Date().toISOString() };
         tree.navigationSource = 'manual';
-        writeTree(workspace, tree);
+        // the decision is written onto the tree as read: the routes the URL plan derives stay out of the reviewed file
+        writeTree(workspace, { ...readTree(workspace), unlistedPlacement: tree.unlistedPlacement, navigationSource: tree.navigationSource });
         ok(`${unlisted.length} page(s) the source never placed will be grouped under the folders it publishes them in, by ${by}; navigation is now operator-reviewed, so approve gate 1 again`);
       }
       if (v['help-center']) {
@@ -1552,7 +1566,7 @@ async function main() {
         if (hubPath && hubs.length > 1) fail(`--hub-path names one route, but ${hubs.length} containers are labelled "${container}" (one per language or version); drop --hub-path and each opens at the head of its own pages`);
         for (const hub of hubs) if (tree.pages.some((page) => page.migrate && page.newPath === hub.hubPath)) fail(`--help-center: a migrated page already lives at ${hub.hubPath}; name another route with --hub-path`);
         tree.helpCenter = { container, ...(hubPath ? { hubPath } : {}), approvedBy: by, approvedAt: new Date().toISOString() };
-        writeTree(workspace, tree);
+        writeTree(workspace, { ...readTree(workspace), helpCenter: tree.helpCenter });
         ok(`${container} opens on a help-centre hub at ${hubs.map((hub) => hub.hubPath).join(', ')}, its categories drawn from its own navigation, by ${by}; the tree changed, so approve gate 1 again`);
       }
       if (tree.helpCenter) {
@@ -1611,7 +1625,9 @@ async function main() {
       };
       const site = documentationSiteSettings({ name: meta.name ?? existing.name, plan: sitePlan, hosted, redirects: r.exact });
       // initialRoute is a page path without a leading slash; normalise values written by earlier runs
-      const initialRoute = typeof existing.initialRoute === 'string' ? existing.initialRoute.replace(/^\/+/, '') : undefined;
+      const kept = typeof existing.initialRoute === 'string' ? existing.initialRoute.replace(/^\/+/, '') : undefined;
+      const initialRoute = kept && written(kept) ? kept : firstWritten || undefined;
+      if (firstPage && initialRoute && initialRoute !== firstPage && !written(firstPage)) console.log(`  · the source's first page ${firstPage} was not written, so the site opens on ${initialRoute}`);
       const documentationJson = { name: 'Documentation', ...(initialRoute ? { initialRoute } : {}), ...site.settings, navigation: navigation.navigation };
       const configIssues = validateSiteConfig(documentationJson);
       if (configIssues.length) fail(`documentation.json would not be accepted by the platform:\n${configIssues.map((issue) => `  ${issue.message}`).join('\n')}\nfix plan/site.yaml and run nav again`);
@@ -1974,10 +1990,10 @@ async function main() {
         } catch (error) { await client.close(); fail((error as Error).message); }
       }
       let result: PublishResult;
+      const commitMessage = `Migrate ${typeof readPlatformMeta(workspace).name === 'string' ? readPlatformMeta(workspace).name : 'documentation'} (${s.migrationId})`;
       try {
         result = await publishThroughMcp({
-          client, outputDir: join(workspace, 'output'), branch, project,
-          commitMessage: `Migrate ${typeof readPlatformMeta(workspace).name === 'string' ? readPlatformMeta(workspace).name : 'documentation'} (${s.migrationId})`,
+          client, outputDir: join(workspace, 'output'), branch, project, commitMessage,
           removeOldPages: !!v['remove-old-pages'],
           progress: existsSync(progressFile) ? readJson<PublishProgress>(progressFile) : undefined,
           saveProgress: (progress) => writeJson(progressFile, progress),
@@ -1993,6 +2009,8 @@ async function main() {
       writeJson(join(workspace, 'report', 'mcp-publish-result.json'), { at: new Date().toISOString(), ...result });
       markStage(workspace, 'publish', 'done', `${result.branch}${result.commitSha ? `@${result.commitSha.slice(0, 8)}` : ''}`);
       ok(`${result.created + result.rewritten + result.alreadySent} files on working version ${result.branch} (${result.created} created, ${result.rewritten} rewritten, ${result.alreadySent} already there); ${result.status === 'published' ? 'published' : 'nothing new to publish'}. The live site is unchanged`);
+      // the platform also built the copy the working version started from, under the same branch name and marked ready
+      if (result.status === 'published') console.log(`  · the migration's preview is the deployment of this publication ("${commitMessage}"${result.commitSha ? `, commit ${result.commitSha.slice(0, 7)}` : ''}); an earlier deployment of ${result.branch} is the project's content before the migration`);
       if (result.replacedPages.length) console.log(`  · ${result.replacedPages.length} page(s) the project had before are no longer in the navigation${result.removedPages.length ? ' and were deleted (--remove-old-pages)' : ', so they are not served; their files are left in place (publish --remove-old-pages deletes them)'}`);
       // Publishing a working version starts its preview build on the platform by itself (the same
       // path the editor's Save takes). With a project key the address is looked up here, and the

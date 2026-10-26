@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ingestAssets, uploadNote, type McpToolCaller } from '../src/assets/providers.js';
+import { ingestAssets, uploadNote, uploadSteps, type McpToolCaller } from '../src/assets/providers.js';
 import { readManifest, writeManifest, type AssetEntry, type AssetManifest } from '../src/assets/manifest.js';
 
 const PROJECT = { organizationId: 'o1', documentationId: 'd1' };
@@ -274,5 +274,23 @@ describe('dai-mcp: files that must go as bytes', () => {
     const m = await ingestAssets(manifest(w, [{ hash: 'a', url: 'https://docs.example/a.png', size: 3 }]), { workspace: w, provider: 'dai-mcp', mcp: { client, project: PROJECT }, fidelityMode: 'permissive', sleep: noWait });
     expect(m.entries.a.status).toBe('ingested');
     expect(m.entries.a.note).toMatch(/serves 999 bytes where 3 were captured/);
+  });
+});
+
+describe('the upload step', () => {
+  it('says once, last, the link, the folder, how much to drop and until when the link works', () => {
+    const folder = mkdtempSync(join(tmpdir(), 'dai-upload-'));
+    writeFileSync(join(folder, 'a-1234567890.png'), Buffer.alloc(2 * 1024 * 1024));
+    writeFileSync(join(folder, 'b-0987654321.mp4'), Buffer.alloc(1024 * 1024));
+    const request = { url: 'https://dashboard.example/upload/mup_x', requestedAt: '2026-10-26T07:05:00.000Z', expiresAt: '2026-10-26T07:20:00.000Z', folder, files: ['a-1234567890.png', 'b-0987654321.mp4', 'gone.png'] };
+    const steps = uploadSteps(request, 'demo-g', new Date('2026-10-26T07:05:00.000Z'));
+    expect(steps).toContain('2 file(s) have no public address, so they reach "demo-g" through its upload page');
+    expect(steps).toContain('1. Open https://dashboard.example/upload/mup_x');
+    expect(steps).toContain('until 07:20 UTC, about 15 minutes from now');
+    // the page files uploads under the browser's dashboard sign-in, which can be another account than the migration's
+    expect(steps).toContain('whoever is signed in to the dashboard in that browser: an account that can edit "demo-g"');
+    expect(steps).toContain(`2. Drop every file from this folder onto that page: ${folder}`);
+    expect(steps).toContain('(2 file(s), 3 MB; keep the page open');
+    expect(steps).toMatch(/3\. Run assets again/);
   });
 });

@@ -15,7 +15,7 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { McpToolError, type McpClient } from './mcp-client.js';
+import { McpRequestBlocked, McpToolError, type McpClient } from './mcp-client.js';
 
 type Json = Record<string, unknown>;
 
@@ -48,7 +48,14 @@ export interface PublishOptions {
   progress?: PublishProgress;
   saveProgress?: (progress: PublishProgress) => void;
   log?: (message: string) => void;
+  /** How a wait is spent; a test passes one that returns at once. */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** The repository behind a project asks for a pause after a run of commits (GitHub's "secondary rate limit"). */
+const REPOSITORY_RATE_LIMIT = /secondary rate limit|rate limit exceeded|wait a few minutes/i;
+/** Waits before each new attempt after a repository rate limit, about ten minutes in all. */
+const RATE_LIMIT_WAITS_MS = [60_000, 120_000, 180_000, 240_000];
 
 export interface PublishResult {
   branch: string;
@@ -146,8 +153,22 @@ const alreadyExists = (error: unknown): boolean => error instanceof McpToolError
 export async function publishThroughMcp(options: PublishOptions): Promise<PublishResult> {
   const { outputDir, branch } = options;
   const target = options.project ? { organizationId: options.project.organizationId, documentationId: options.project.documentationId } : {};
-  const client: Pick<McpClient, 'call'> = { call: (tool, args) => options.client.call(tool, { ...args, ...target }) };
   const log = options.log ?? (() => undefined);
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  // A project backed by a repository commits every write there, and a migration is hundreds of them:
+  // when the repository asks for a pause, this waits as asked instead of stopping half-way.
+  const client: Pick<McpClient, 'call'> = {
+    call: async (tool, args) => {
+      for (let attempt = 0; ; attempt++) {
+        try { return await options.client.call(tool, { ...args, ...target }); }
+        catch (error) {
+          if (!(error instanceof McpToolError) || !REPOSITORY_RATE_LIMIT.test(error.message) || attempt >= RATE_LIMIT_WAITS_MS.length) throw error;
+          log(`the project's repository asked for a pause (${tool}); trying again in ${RATE_LIMIT_WAITS_MS[attempt] / 60_000} minute(s)`);
+          await sleep(RATE_LIMIT_WAITS_MS[attempt]);
+        }
+      }
+    },
+  };
   const warnings: string[] = [];
   const files = outputFiles(outputDir);
   if (!files.includes(SITE_CONFIG)) throw new Error('output/documentation.json is missing; run nav before publish');
@@ -159,6 +180,8 @@ export async function publishThroughMcp(options: PublishOptions): Promise<Publis
   try {
     const made = await client.call<{ sourceBranch?: string }>('create_branch', { branchName: branch });
     log(`working version ${branch} created from ${made.structured.sourceBranch ?? 'the live version'}`);
+    // the platform builds that copy at once, under the migration's own branch name and marked ready
+    log(`Documentation.AI builds a preview of ${branch} straight away from that copy of the project's current content: that first deployment is not the migration. The migration's preview is the deployment built after the last step here`);
   } catch (error) {
     if (!alreadyExists(error)) throw error;
     log(`working version ${branch} already exists; continuing on it`);
@@ -182,10 +205,16 @@ export async function publishThroughMcp(options: PublishOptions): Promise<Publis
     const hash = sha(content);
     // skipped only when the working version really holds it: the record alone could be from another project's version of the same name
     if (progress.sent[file] === hash && existing.has(file)) { alreadySent++; continue; }
-    if (existing.has(file)) { await client.call('rewrite_page', { path: file, content, branch }); rewritten++; }
-    else {
-      try { await client.call('create_page', { path: file, content, branch }); created++; }
-      catch (error) { if (!alreadyExists(error)) throw error; await client.call('rewrite_page', { path: file, content, branch }); rewritten++; }
+    try {
+      if (existing.has(file)) { await client.call('rewrite_page', { path: file, content, branch }); rewritten++; }
+      else {
+        try { await client.call('create_page', { path: file, content, branch }); created++; }
+        catch (error) { if (!alreadyExists(error)) throw error; await client.call('rewrite_page', { path: file, content, branch }); rewritten++; }
+      }
+    } catch (error) {
+      if (!(error instanceof McpRequestBlocked)) throw error;
+      options.saveProgress?.(progress);
+      throw new Error(`${file}: ${error.message}. Something on that page reads to the firewall as an attack (a shell command in an example, typically), and no sign-in gets it through. Leave the page out (exclude --path <its source file>) or deliver through git (write --push), which does not pass that firewall; everything sent before it is kept`);
     }
     progress.sent[file] = hash;
     if ((index + 1) % 25 === 0 || index + 1 === contentFiles.length) { options.saveProgress?.(progress); log(`${index + 1}/${contentFiles.length} files sent`); }
@@ -215,7 +244,19 @@ export async function publishThroughMcp(options: PublishOptions): Promise<Publis
   if (options.removeOldPages) for (const file of replacedPages) { await client.call('delete_page', { path: file, branch }); removedPages.push(file); }
 
   // 6. one publication
-  const published = await client.call<{ status: 'published' | 'nothing-to-publish' | 'conflicts'; commitSha?: string; conflicts?: Array<{ path: string }> }>('publish', { commitMessage: options.commitMessage.slice(0, 500), branch });
+  type Publication = { status: 'published' | 'nothing-to-publish' | 'conflicts'; commitSha?: string; conflicts?: Array<{ path: string }> };
+  let published: { structured: Publication };
+  try {
+    published = await client.call<Publication>('publish', { commitMessage: options.commitMessage.slice(0, 500), branch });
+  } catch (error) {
+    // Committing a whole migration can outlast the wait for an answer while the platform carries on
+    // and finishes it. What the working version still holds unpublished says which happened.
+    if (!/timeout|timed out|aborted/i.test(`${(error as Error).name} ${(error as Error).message}`)) throw error;
+    const pending = await client.call<{ total?: number }>('list_changes', { branch });
+    if (pending.structured.total !== 0) throw error;
+    log('the publication took longer than this step waits for an answer, and the working version holds nothing unpublished: it went through');
+    published = { structured: { status: 'published' } };
+  }
   if (published.structured.status === 'conflicts') throw new Error(`publishing ${branch} met conflicts with changes made in the editor meanwhile (${(published.structured.conflicts ?? []).slice(0, 5).map((conflict) => conflict.path).join(', ')}); resolve them in the editor, then run publish again`);
   return { branch, created, rewritten, alreadySent, configWrites, replacedPages, removedPages, status: published.structured.status, commitSha: published.structured.commitSha, warnings };
 }

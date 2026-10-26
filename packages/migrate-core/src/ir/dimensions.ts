@@ -18,7 +18,8 @@ export interface PixelDimension {
   unreadable?: string;
 }
 
-const POSITIVE_INTEGER = /^\d+$/;
+/** A count of pixels, with or without the `px` an author may write after it: `24px` is 24 pixels, as a browser reads the attribute. */
+const PIXELS = /^(\d+)(?:px)?$/i;
 
 export function readPixelDimension(raw: string | number | boolean | null | undefined): PixelDimension {
   if (raw === undefined || raw === null || raw === '') return {};
@@ -26,7 +27,8 @@ export function readPixelDimension(raw: string | number | boolean | null | undef
   if (typeof raw === 'boolean') return { unreadable: String(raw) };
   const text = raw.trim();
   if (!text) return {};
-  if (POSITIVE_INTEGER.test(text) && Number(text) > 0) return { value: Number(text) };
+  const pixels = text.match(PIXELS)?.[1];
+  if (pixels !== undefined && Number(pixels) > 0) return { value: Number(pixels) };
   return { unreadable: raw };
 }
 
