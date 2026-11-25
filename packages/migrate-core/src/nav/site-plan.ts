@@ -170,25 +170,25 @@ export function documentationSiteSettings(input: SiteSettingsInput): { settings:
   if (plan.branding.carry) {
     const light = hexColor(plan.branding.colors?.light); const dark = hexColor(plan.branding.colors?.dark);
     if (light || dark) settings.colors = { ...(light ? { light: { brand: light } } : {}), ...(dark ? { dark: { brand: dark } } : {}) };
-    const image = (key: string, source: string | undefined, what: string): void => {
-      if (!source) return;
+    const hostImage = (source: string | undefined, what: string): string | undefined => {
+      if (!source) return undefined;
       const url = input.hosted?.(source);
+      if (!url) leftOut.push(`${what}: ${source} is not hosted by this migration, so it is not written (run assets with a hosting provider)`);
+      return url;
+    };
+    const image = (key: string, source: string | undefined, what: string): void => {
+      const url = hostImage(source, what);
       if (url) settings[key] = url;
-      else leftOut.push(`${what}: ${source} is not hosted by this migration, so it is not written (run assets with a hosting provider)`);
     };
     // one logo serves both schemes when the source draws only one
     image('logo-light', plan.branding.logo?.light ?? plan.branding.logo?.dark, 'logo (light)');
     image('logo-dark', plan.branding.logo?.dark ?? plan.branding.logo?.light, 'logo (dark)');
-    const favicon = plan.branding.favicon;
-    const faviconLight = favicon?.light ?? favicon?.dark;
-    const faviconDark = favicon?.dark && favicon.dark !== faviconLight ? favicon.dark : undefined;
-    image('favicon', faviconLight, 'favicon');
     // a dark favicon travels only beside a light one: the platform's { light, dark } needs both
-    if (faviconDark && typeof settings.favicon === 'string') {
-      const dark = input.hosted?.(faviconDark);
-      if (dark) settings.favicon = { light: settings.favicon, dark };
-      else leftOut.push(`favicon (dark): ${faviconDark} is not hosted by this migration, so it is not written (run assets with a hosting provider)`);
-    }
+    const faviconLightSource = plan.branding.favicon?.light ?? plan.branding.favicon?.dark;
+    const faviconDarkSource = plan.branding.favicon?.dark !== faviconLightSource ? plan.branding.favicon?.dark : undefined;
+    const faviconLight = hostImage(faviconLightSource, 'favicon');
+    const faviconDark = faviconLight ? hostImage(faviconDarkSource, 'favicon (dark)') : undefined;
+    if (faviconLight) settings.favicon = faviconDark ? { light: faviconLight, dark: faviconDark } : faviconLight;
   }
   const primary = plan.navbar?.primary; const links = plan.navbar?.links?.filter((link) => link.title && link.link) ?? [];
   if (primary?.title && primary.link || links.length) settings.navbar = { actions: { ...(primary?.title && primary.link ? { primary: { title: primary.title, link: primary.link } } : {}), ...(links.length ? { links: links.map(({ title, link }) => ({ title, link })) } : {}) } };
