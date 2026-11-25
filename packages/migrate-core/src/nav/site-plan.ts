@@ -179,7 +179,16 @@ export function documentationSiteSettings(input: SiteSettingsInput): { settings:
     // one logo serves both schemes when the source draws only one
     image('logo-light', plan.branding.logo?.light ?? plan.branding.logo?.dark, 'logo (light)');
     image('logo-dark', plan.branding.logo?.dark ?? plan.branding.logo?.light, 'logo (dark)');
-    image('favicon', plan.branding.favicon?.light ?? plan.branding.favicon?.dark, 'favicon');
+    const favicon = plan.branding.favicon;
+    const faviconLight = favicon?.light ?? favicon?.dark;
+    const faviconDark = favicon?.dark && favicon.dark !== faviconLight ? favicon.dark : undefined;
+    image('favicon', faviconLight, 'favicon');
+    // a dark favicon travels only beside a light one: the platform's { light, dark } needs both
+    if (faviconDark && typeof settings.favicon === 'string') {
+      const dark = input.hosted?.(faviconDark);
+      if (dark) settings.favicon = { light: settings.favicon, dark };
+      else leftOut.push(`favicon (dark): ${faviconDark} is not hosted by this migration, so it is not written (run assets with a hosting provider)`);
+    }
   }
   const primary = plan.navbar?.primary; const links = plan.navbar?.links?.filter((link) => link.title && link.link) ?? [];
   if (primary?.title && primary.link || links.length) settings.navbar = { actions: { ...(primary?.title && primary.link ? { primary: { title: primary.title, link: primary.link } } : {}), ...(links.length ? { links: links.map(({ title, link }) => ({ title, link })) } : {}) } };

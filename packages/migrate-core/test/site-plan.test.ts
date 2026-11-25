@@ -119,6 +119,26 @@ describe('the site plan', () => {
     expect(validateSiteConfig({ ...settings, navigation: { pages: [] } })).toEqual([]);
   });
 
+  // DAI-498: the platform takes favicon: { light, dark }, as Mintlify does.
+  it('writes a light and dark favicon pair when the source has two, and the platform\'s schema accepts it', () => {
+    const hosted = (url: string): string => url.replace('cdn.acme.test', 'media.documentation.test');
+    const twoFavicons = { ...plan, branding: { ...plan.branding, favicon: { light: 'https://cdn.acme.test/favicon.svg', dark: 'https://cdn.acme.test/favicon-dark.svg' } } };
+    const { settings, leftOut } = documentationSiteSettings({ name: 'Acme', plan: twoFavicons, hosted });
+    expect(settings.favicon).toEqual({ light: 'https://media.documentation.test/favicon.svg', dark: 'https://media.documentation.test/favicon-dark.svg' });
+    expect(leftOut).toEqual([]);
+    expect(validateSiteConfig({ ...settings, navigation: { pages: [] } })).toEqual([]);
+  });
+
+  it('writes one favicon when the source\'s two are the same file, or when the dark one is not hosted', () => {
+    const same = { ...plan, branding: { ...plan.branding, favicon: { light: 'https://cdn.acme.test/favicon.svg', dark: 'https://cdn.acme.test/favicon.svg' } } };
+    expect(documentationSiteSettings({ name: 'Acme', plan: same, hosted: (url) => url }).settings.favicon).toBe('https://cdn.acme.test/favicon.svg');
+    const twoFavicons = { ...plan, branding: { ...plan.branding, favicon: { light: 'https://cdn.acme.test/favicon.svg', dark: 'https://cdn.acme.test/favicon-dark.svg' } } };
+    const lightOnlyHosted = (url: string): string | undefined => (url.endsWith('/favicon.svg') ? url : undefined);
+    const { settings, leftOut } = documentationSiteSettings({ name: 'Acme', plan: twoFavicons, hosted: lightOnlyHosted });
+    expect(settings.favicon).toBe('https://cdn.acme.test/favicon.svg');
+    expect(leftOut).toEqual(expect.arrayContaining([expect.stringContaining('favicon (dark): https://cdn.acme.test/favicon-dark.svg is not hosted')]));
+  });
+
   it('states Lucide too, so publishing into a project set to another library cannot redraw the icons', () => {
     expect(documentationSiteSettings({ name: 'Acme', plan: { ...plan, iconLibrary: 'lucide' } }).settings.icons).toEqual({ library: 'lucide' });
   });
