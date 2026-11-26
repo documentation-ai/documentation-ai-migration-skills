@@ -65,9 +65,30 @@
       }
     },
     "favicon": {
-      "type": "string",
-      "format": "uri-reference",
-      "description": "Favicon for browser tabs: an absolute URL or a root-relative path (e.g. /favicon.png)"
+      "description": "Favicon for browser tabs: an absolute URL or a root-relative path (e.g. /favicon.png), or { \"light\": ..., \"dark\": ... } to give browsers in dark mode their own favicon",
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uri-reference"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["light", "dark"],
+          "properties": {
+            "light": {
+              "type": "string",
+              "format": "uri-reference",
+              "description": "Favicon when the browser is in light mode, and in browsers that ignore the mode (Firefox)"
+            },
+            "dark": {
+              "type": "string",
+              "format": "uri-reference",
+              "description": "Favicon when the browser is in dark mode"
+            }
+          }
+        }
+      ]
     },
     "logo-dark": {
       "type": "string",
@@ -91,6 +112,35 @@
     },
     "colors": {
       "$ref": "#/$defs/colors"
+    },
+    "background": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Page background: a colour per mode and a decoration at the top of the page. In the classic template the colour fills the whole page; in atlas it fills the content card",
+      "properties": {
+        "color": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Background colour for each mode. A mode left out keeps the default",
+          "properties": {
+            "light": {
+              "type": "string",
+              "pattern": "^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$",
+              "description": "Background colour in light mode. Hex format"
+            },
+            "dark": {
+              "type": "string",
+              "pattern": "^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$",
+              "description": "Background colour in dark mode. Hex format"
+            }
+          }
+        },
+        "decoration": {
+          "type": "string",
+          "enum": ["gradient", "grid", "windows"],
+          "description": "A faint decoration at the top of the page in the brand colour: gradient is a glow, grid adds thin lines, windows adds slanted panes. Omit for none"
+        }
+      }
     },
     "navbar": {
       "$ref": "#/$defs/navbar"
