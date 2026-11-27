@@ -39,17 +39,57 @@ describe('redirects read as a graph', () => {
 
   it('reports a destination no written page answers, and accepts an index page', () => {
     expect(kinds(redirectProblems([rule('/old', '/gone')], new Set(['guides/install'])))).toContain('missing-target');
-    expect(redirectProblems([rule('/old', '/guides')], new Set(['guides/index']))).toEqual([]);
+    // routes come as listOutputPageRoutes gives them: an index page also at its folder
+    expect(redirectProblems([rule('/old', '/guides')], new Set(['guides/index', 'guides']))).toEqual([]);
     // a destination that leaves the site is somebody else's to answer
     expect(redirectProblems([rule('/old', 'https://status.example.com')], new Set(['a']))).toEqual([]);
   });
 
-  it('reports a wildcard that covers an exact rule, where the host decides which one runs', () => {
-    // the exact rule sends the path somewhere the wildcard would not, so the host's order decides
-    const problems = redirectProblems([rule('/docs/*', '/guides/:splat'), rule('/docs/install', '/setup/install')], new Set(['guides/install', 'setup/install']));
-    expect(kinds(problems)).toContain('shadowed');
-    // a wildcard that agrees with every exact rule beneath it is the same rule said once
-    expect(kinds(redirectProblems([rule('/docs/*', '/guides/:splat'), rule('/docs/install', '/guides/install')], new Set(['guides/install'])))).not.toContain('shadowed');
+  it('accepts an exact rule beneath a wildcard redirect, which the site always tries first', () => {
+    // the exact rule overrides the wildcard for its one path; nothing depends on the host's order
+    expect(redirectProblems([rule('/docs/:slug*', '/guides/:slug*'), rule('/docs/install', '/setup/install')], new Set(['guides/install', 'setup/install']))).toEqual([]);
+    expect(redirectProblems([rule('/docs/:slug*', '/guides/:slug*'), rule('/docs/install', '/guides/install')], new Set(['guides/install']))).toEqual([]);
+  });
+
+  it('does not report a pattern destination as a missing page', () => {
+    expect(redirectProblems([rule('/docs/:slug', '/guides/:slug'), rule('/beta/:slug*', '/v2/:slug*')], new Set(['guides/install']))).toEqual([]);
+  });
+
+  it('reports a wildcard redirect that sends readers back inside its own source', () => {
+    const problems = redirectProblems([rule('/docs/:slug*', '/docs/v2/:slug*')], new Set(['docs/v2/a']));
+    expect(kinds(problems)).toContain('loop');
+  });
+
+  it('reports a pattern that also matches written pages, naming them', () => {
+    const problems = redirectProblems([rule('/api/:slug*', '/reference/:slug*')], new Set(['api/overview', 'api/auth', 'guides/index', 'guides']));
+    expect(kinds(problems)).toEqual(['covers-page']);
+    expect(problems[0].detail).toContain('/api/overview');
+    // a written index page answers at its folder's address, which the route list carries
+    expect(kinds(redirectProblems([rule('/guides/:slug*', '/handbook/:slug*')], new Set(['guides/index', 'guides'])))).toEqual(['covers-page']);
+  });
+
+  it('reports two pattern rules for one source, however their names are spelled', () => {
+    expect(kinds(redirectProblems([rule('/old/:slug*', '/a/:slug*'), rule('/old/:slug*', '/b/:slug*')], new Set()))).toEqual(['conflict']);
+    expect(kinds(redirectProblems([rule('/old/:slug*', '/a/:slug*'), rule('/old/:path*/', '/b/:path*')], new Set()))).toEqual(['conflict']);
+  });
+
+  it('reports a loop that runs through patterns', () => {
+    expect(kinds(redirectProblems([rule('/a/:slug*', '/b/:slug*'), rule('/b/:slug*', '/a/:slug*')], new Set()))).toEqual(['loop', 'loop']);
+    // an exact rule back into a wildcard redirect's source
+    const problems = redirectProblems([rule('/new/x', '/old/x'), rule('/old/:slug*', '/new/:slug*')], new Set(['new/y']));
+    expect(kinds(problems)).toContain('loop');
+    expect(problems.find((problem) => problem.kind === 'loop')?.detail).toContain('/new/x → /old/x → /new/x');
+  });
+
+  it('reports a chain that runs through a pattern', () => {
+    const problems = redirectProblems([rule('/x', '/old/y'), rule('/old/:slug*', '/new/:slug*')], new Set(['new/y']));
+    expect(kinds(problems)).toEqual(['chain']);
+    expect(problems[0].detail).toContain('/x → /old/y → /new/y');
+  });
+
+  it('finds the page a destination with an anchor, a query or a .md address lands on', () => {
+    expect(redirectProblems([rule('/a', '/guides/setup#install'), rule('/b', '/guides/setup?tab=cli'), rule('/c', '/guides/setup.md')], new Set(['guides/setup']))).toEqual([]);
+    expect(kinds(redirectProblems([rule('/a', '/guides/gone#install')], new Set(['guides/setup'])))).toEqual(['missing-target']);
   });
 
   it('reports a rule whose old path carries a query or fragment, which never matches', () => {

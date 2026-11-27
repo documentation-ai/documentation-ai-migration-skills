@@ -17,9 +17,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import kebabCase from 'lodash/kebabCase.js';
 import { parse as parseYaml } from 'yaml';
+import { PLATFORM_PAGE_METHODS } from '../openapi/graph.js';
 
-/** The methods the platform makes a page for (its deployment step reads these and no others). */
-const PAGE_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
 
 export interface FernSlugLevel { urlSlug: string; skip?: boolean }
 
@@ -125,7 +124,7 @@ export function readFernApi(root: string, fernDir: string, item: { api?: unknown
   const defaults = new Map<string, FernApiEndpoint>();
   for (const [path, value] of Object.entries(record(document.paths))) {
     for (const [method, operationValue] of Object.entries(record(value))) {
-      if (!PAGE_METHODS.includes(method)) continue;
+      if (!PLATFORM_PAGE_METHODS.includes(method)) continue;
       const operation = record(operationValue);
       operations.set(path, [...(operations.get(path) ?? []), method]);
       const named = operation['x-fern-sdk-method-name'];
@@ -172,10 +171,4 @@ export function readFernApi(root: string, fernDir: string, item: { api?: unknown
   const unnamed = endpoints.filter((endpoint) => !endpoint.slugs.length && !endpoint.hidden);
   if (unnamed.length) notes.push(`API reference "${title}": ${unnamed.length} endpoint(s) have no operationId, so the address Fern gave them is not known and gets no redirect (${unnamed.slice(0, 3).map((endpoint) => `${endpoint.method} ${endpoint.path}`).join(', ')})`);
   return { spec: relative(root, spec), notes, endpoints };
-}
-
-/** The page the platform makes for an operation of a spec in `api-reference/` (its deployment step's own naming). */
-export function platformEndpointPath(method: string, path: string): string {
-  const clean = path.replace(/[{}]/g, '').replace(/[^\w\s-]/g, '-').replace(/\/+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  return `api-reference/${`${method.toLowerCase()}-${clean}`.toLowerCase()}`;
 }

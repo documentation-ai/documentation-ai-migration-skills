@@ -22,8 +22,10 @@ import { parse as parseYaml } from 'yaml';
 import { pageIdFromPlatform } from '../session/ids.js';
 import { statedFrontmatter as frontmatter } from './frontmatter.js';
 import type { GroupOpenapiRef, SourceNavigationNode, Tree, TreePage } from '../nav/tree.js';
-import { readFernApi, platformEndpointPath } from './fern-api.js';
-import { sourceRedirects, type SourceRedirects } from './source-redirects.js';
+import { readFernApi } from './fern-api.js';
+import { platformEndpointPath, specOutputPath } from '../openapi/graph.js';
+import { isRedirectPattern, isWildcardSegment, matchRedirectPath } from '@dai/content-contract';
+import { sourceRedirects, type SourceRedirects, type StatedRedirect } from './source-redirects.js';
 
 export interface FernRepo {
   root: string;
@@ -394,7 +396,7 @@ export function readFernRepo(rootIn: string): FernRepo {
       if (endpoint.hidden || !endpoint.slugs.length) continue;
       const at = endpoint.slugs.reduce((slug, level) => slug.apply(level), own).path;
       const unprefixed = scope.unprefixed && scopedTo(at, scope.unprefixed.from) ? slugjoin(scope.unprefixed.to, at.slice(scope.unprefixed.from.length)) : undefined;
-      const destination = `/${platformEndpointPath(endpoint.method, endpoint.path)}`;
+      const destination = `/${platformEndpointPath(endpoint.method, endpoint.path, specOutputPath(api.spec))}`;
       for (const source of new Set([unprefixed, at].filter((path): path is string => path !== undefined).map((path) => `/${path}`))) {
         if (source !== destination) endpointRedirects.push({ source, destination, statusCode: 308 });
       }
@@ -501,13 +503,84 @@ export function readFernRepo(rootIn: string): FernRepo {
     tree: { scope: 'full', platform: 'fern', pages, navigation, navigationSource: 'source-config', ...(defaultVersion ? { defaultVersion } : {}) },
     missing, unreferenced, apiSections, apiNotes, links,
     redirects: (() => {
-      const stated = sourceRedirects(docs.redirects);
+      const stated = readFernRedirects(docs.redirects);
       // a rule the site states wins over one derived for an endpoint at the same address, and an
       // address a written page holds stays that page's
-      const taken = new Set([...stated.exact, ...stated.wildcard].map((rule) => rule.source));
+      const taken = new Set([...stated.exact, ...stated.dynamic].map((rule) => rule.source));
       for (const page of pages) for (const address of [page.oldPath, ...(page.aliases ?? [])]) if (address) taken.add(address);
       const derived = [...new Map(endpointRedirects.filter((rule) => !taken.has(rule.source)).map((rule) => [rule.source, rule])).values()];
       return { ...stated, exact: [...stated.exact, ...derived] };
     })(),
   };
+}
+
+const ONE_OR_MORE_SEGMENTS = /:([^/(]+)\+(?=\/|$)/g;
+
+/** Why a Fern redirect source has no equivalent the platform runs, or null when it carries as written. */
+const getFernOnlySyntaxReason = (source: string): string | null => {
+  if (/\(/.test(source)) return 'a regular expression, which the platform does not run; add the addresses it matched by hand';
+  if (new RegExp(ONE_OR_MORE_SEGMENTS.source).test(source)) return 'one or more segments (:name+), which the platform has no pattern for; add it as :name* by hand if the empty case is safe';
+  const hasBareWildcard = source.split('/').some((segment) => segment.includes('*') && !isWildcardSegment(segment));
+  if (hasBareWildcard) return 'Fern does not document a bare *; add it by hand once you know what it matched';
+  return null;
+};
+
+/** True when a `:name+` rule matches the address, read as `:name*` with at least one segment for each. */
+const isMatchedByOneOrMoreSegments = (address: string, source: string): boolean => {
+  const names = [...source.matchAll(ONE_OR_MORE_SEGMENTS)].map((match) => match[1]);
+  const params = matchRedirectPath(address, source.replace(ONE_OR_MORE_SEGMENTS, ':$1*'));
+  return params !== null && names.every((name) => params[name] !== '');
+};
+
+/** The whole plain segments a source starts with, as `/api/v2/(.*)` gives `/api/v2/`. */
+const getLeadingPlainSegments = (source: string): string => {
+  const segments = source.split('/').filter(Boolean);
+  const patternIndex = segments.findIndex((segment) => /[(:*]/.test(segment));
+  return `/${segments.slice(0, patternIndex === -1 ? segments.length : patternIndex).map((segment) => `${segment}/`).join('')}`;
+};
+
+/**
+ * Why an exact rule may never have run on Fern because a rule before it, which cannot be carried,
+ * matched first; null when none did. A `:name+` rule is tested as the platform's wildcard with at
+ * least one segment; a regular expression or a bare `*` cannot be read, so every address under its
+ * plain leading segments is treated as possibly matched.
+ */
+const getShadowedByUncarriedReason = (source: string, uncarried: readonly string[]): string | null => {
+  for (const earlier of uncarried) {
+    const isReadableAsWildcard = !/[(]/.test(earlier) && !earlier.split('/').some((segment) => segment.includes('*') && !isWildcardSegment(segment));
+    if (isReadableAsWildcard) {
+      if (isMatchedByOneOrMoreSegments(source, earlier)) return 'never ran on the source: an earlier pattern matches it first';
+      continue;
+    }
+    if (`${source.replace(/\/+$/, '')}/`.startsWith(getLeadingPlainSegments(earlier))) return 'an earlier Fern rule that cannot be carried may have matched it first; check it by hand';
+  }
+  return null;
+};
+
+/**
+ * Fern's redirects as readers met them. Fern reads the same `:slug` and `:slug*` the platform does,
+ * and also `:slug+`, regular expressions and an undocumented bare `*`, which are listed in `skipped`
+ * rather than guessed. Fern tries its rules top to bottom and the first match wins, while the
+ * platform tries exact sources before any pattern: an exact rule that an earlier rule matches (or
+ * may match, for one that cannot be read) never ran on Fern, so it is left out (and listed) rather
+ * than starting to run after the move.
+ */
+export function readFernRedirects(rules: unknown): SourceRedirects {
+  const skipped: SourceRedirects['skipped'] = [];
+  const carried: Array<StatedRedirect & { source: string }> = [];
+  const uncarried: string[] = [];
+  for (const rule of (Array.isArray(rules) ? rules : []) as StatedRedirect[]) {
+    const source = rule?.source;
+    if (typeof source !== 'string') continue;
+    const fernOnlyReason = getFernOnlySyntaxReason(source);
+    if (fernOnlyReason) { skipped.push({ source, reason: fernOnlyReason }); uncarried.push(source); continue; }
+    if (!isRedirectPattern(source)) {
+      const isMatchedByAnEarlierPattern = carried.some((earlier) => isRedirectPattern(earlier.source) && matchRedirectPath(source, earlier.source) !== null);
+      const shadowedReason = isMatchedByAnEarlierPattern ? 'never ran on the source: an earlier pattern matches it first' : getShadowedByUncarriedReason(source, uncarried);
+      if (shadowedReason) { skipped.push({ source, reason: shadowedReason }); continue; }
+    }
+    carried.push({ ...rule, source });
+  }
+  const carriedRedirects = sourceRedirects(carried);
+  return { ...carriedRedirects, skipped: [...skipped, ...carriedRedirects.skipped] };
 }

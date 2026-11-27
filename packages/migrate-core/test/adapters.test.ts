@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readMintlifyRepo, mintlifySnippetResolver } from '../src/adapters/mintlify.js';
+import { sourceRedirects } from '../src/adapters/source-redirects.js';
 import { readGitbookRepo } from '../src/adapters/gitbook.js';
 import { readReadmeRepo, ReadmeApi, readmeApiTree } from '../src/adapters/readme.js';
 import { scanComponentDefinitions, attachDefinitions } from '../src/adapters/definitions.js';
@@ -42,17 +43,48 @@ describe('Mintlify repo adapter', () => {
     expect(r.missing).toEqual(['guides/missing-page']);
     expect(r.openapi).toEqual([{ groupPath: ['API', 'Endpoints'], spec: 'api-reference/openapi.yaml', version: 'v2', locale: undefined }]);
   });
-  it('translates redirects: exact now, trailing wildcards as :splat candidates, mid-path wildcards skipped', () => {
+  it('carries redirects over as written: exact rules and dynamic redirects', () => {
     const r = readMintlifyRepo(fx('mintlify-repo'));
     expect(r.redirects.exact).toEqual([{ source: '/old/intro', destination: '/introduction', statusCode: 308 }]);
-    expect(r.redirects.wildcard).toEqual([{ source: '/legacy/*', destination: '/guides/:splat', statusCode: 307 }]);
-    expect(r.redirects.skipped).toEqual([{ source: '/mid/*/x', reason: 'wildcard not at the end' }]);
+    expect(r.redirects.dynamic).toEqual([
+      { source: '/legacy/:slug*', destination: '/guides/:slug*', statusCode: 307 },
+      { source: '/mid/*/x', destination: '/y', statusCode: 308 },
+    ]);
+    expect(r.redirects.skipped).toEqual([]);
   });
   it('resolves snippet imports inside the repo only', () => {
     const resolve = mintlifySnippetResolver(fx('mintlify-repo'));
     expect(resolve('/snippets/intro.mdx')).toBe('Shared **intro** text.\n');
     expect(resolve('/snippets/../docs.json')).toBeUndefined();
     expect(resolve('/introduction.mdx')).toBeUndefined();
+  });
+});
+
+describe('sourceRedirects', () => {
+  it('skips a source the platform never matches, with the reason', () => {
+    expect(sourceRedirects([{ source: '/:version*/guides/:slug*', destination: '/v2' }, { source: '/a/:slug', destination: '/b/:slug' }])).toEqual({
+      exact: [],
+      dynamic: [{ source: '/a/:slug', destination: '/b/:slug', statusCode: 308 }],
+      skipped: [{ source: '/:version*/guides/:slug*', reason: 'Use one * at most. The site skips a source with more.' }],
+    });
+  });
+
+  it('skips a source with a query or anchor, or a * inside a parameter name', () => {
+    expect(sourceRedirects([{ source: '/docs?tab=a', destination: '/v2' }, { source: '/docs/:sl*ug', destination: '/v2' }]).skipped).toEqual([
+      { source: '/docs?tab=a', reason: 'Leave out ? and #. A source matches the path only.' },
+      { source: '/docs/:sl*ug', reason: 'Write a wildcard as :name*, with the * last.' },
+    ]);
+  });
+
+  it('keeps a stated statusCode, else reads permanent', () => {
+    const read = sourceRedirects([
+      { source: '/a', destination: '/b', statusCode: 301 },
+      { source: '/c', destination: '/d', statusCode: 302, permanent: true },
+      { source: '/e', destination: '/f', statusCode: 999, permanent: false },
+      { source: '/g', destination: '/h', statusCode: '307' },
+      { source: '/i', destination: '/j' },
+    ]);
+    expect(read.exact.map((rule) => rule.statusCode)).toEqual([301, 302, 307, 308, 308]);
   });
 });
 

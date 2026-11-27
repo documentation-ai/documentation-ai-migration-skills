@@ -86,7 +86,8 @@ import { writeTree, readTree, buildDocumentationNavigation, pagesWithoutPlacemen
 import { documentationSiteSettings, proposeSitePlan, readSitePlan, sitePlanImages, sitePlanPath, sourceIconLibrary, writeSitePlan, MIGRATION_STYLESHEET, MIGRATION_STYLESHEET_CSS } from './nav/site-plan.js';
 import { applyIconPolicy } from './nav/icon-suggest.js';
 import { fernBranding, mintlifyBranding, siteBrandingFromPage, type SiteBranding } from './scrape/site-branding.js';
-import { defaultUrlPlan, extendUrlPlan, writeUrlPlan, readUrlPlan, applyUrlPlan, redirectMaps, anchorMap, type RedirectRule } from './urls/plan.js';
+import { defaultUrlPlan, extendUrlPlan, writeUrlPlan, readUrlPlan, applyUrlPlan, buildSiteRedirects, collapseRedirectsForSite, listOutputPageRoutes, anchorMap, type RedirectRule } from './urls/plan.js';
+import { redirectProblems } from './urls/redirect-graph.js';
 import { retargetDocLinks, siteLinkResolver, siteLinkTarget, siteLinksFor, type SiteLinks } from './urls/site-links.js';
 import { RulesEngine, applyDeclaredLosses, loadMappings, collectComponents, planEntryIsDecided, type ComponentPlanEntry } from './components/rules-engine.js';
 import { clusterComponents, type ClusterEntry } from './components/signature.js';
@@ -101,7 +102,7 @@ import { describeUnreadableDimension, unreadableImageDimensions } from './ir/dim
 import { readManifest, referenceTally, rewriteAssetRefs, dropExcludedAssets, d360MediaResolver, repoAssetResolver, repoAssetRoots, resolveAssetUrl, SITE_BRANDING_PAGE } from './assets/manifest.js';
 import { assetFoldersElsewhere, s3StorageFromEnv, s3StorageProblems, uploadSteps, type AssetProviderOptions } from './assets/providers.js';
 import { assertAssetsHosted, runAssetsStage, UnhostedAssetsError, type AssetsStageResult } from './assets/stage.js';
-import { runGates, canonicalHash, gateSatisfied, previewPushBlockers, releaseBlockers, waivedExactnessGates, type GateResult, type SourceEvidence } from './verify/gates.js';
+import { runGates, canonicalHash, buildRedirectReportBasis, REDIRECT_ISSUES_REPORT, gateSatisfied, previewPushBlockers, releaseBlockers, waivedExactnessGates, type GateResult, type SourceEvidence } from './verify/gates.js';
 import { loadRawSourcePages, rawSourceIr, type RawSourcePage } from './verify/source-truth.js';
 import { fetchRenderer, findChrome, routeUrl, runBrowserContentGate, runBrowserFragmentGate, type BrowserAnchor, type ExpectedNavigationEntry } from './verify/browser.js';
 import { acceptPreviewRoutes, readPreviewAcceptances } from './verify/preview-acceptances.js';
@@ -1590,12 +1591,17 @@ async function main() {
       }
       const plan = readUrlPlan(workspace)!;
       const migrating = new Set(tree.pages.filter((page) => page.migrate).map((page) => page.id));
-      const r = redirectMaps(plan, (id) => migrating.has(id));
-      const platformExact = (meta.redirects?.exact ?? []).filter((x) => !r.exact.some((e) => e.source === x.source));
-      const platformWildcard = (meta.redirects?.wildcard ?? []).filter((x) => !r.wildcard.some((e) => e.source === x.source));
-      r.exact.push(...platformExact); r.wildcard.push(...platformWildcard);
-      writeJson(join(workspace, 'report', 'redirects.exact.json'), r.exact);
-      writeJson(join(workspace, 'report', 'redirects.wildcard.json'), r.wildcard);
+      // Worked out once here; the verify gate reads the report written at the end of this stage. The
+      // output's routes come from its page files and the specs the navigation's groups connect.
+      // A meta file read before the redirects were split into exact and dynamic ones lists the dynamic
+      // ones under another name, and reading it as it is would leave them out without a word.
+      if (meta.redirects && !Array.isArray(meta.redirects.dynamic)) fail('inventory/platform-meta.json was written by an older migrator, before redirects were split into exact and dynamic ones; run `rebase` and `discover --offline`, then nav again');
+      const outputPageRoutes = listOutputPageRoutes(join(workspace, 'output'), navigation.navigation);
+      const redirects = buildSiteRedirects({ plan, writes: (id) => migrating.has(id), stated: meta.redirects, outputPageRoutes });
+      const redirectIssues = [...redirects.issues, ...redirectProblems(redirects.rules, outputPageRoutes).map((problem) => `${problem.kind}: ${problem.detail}`)];
+      writeJson(join(workspace, 'report', 'redirects.exact.json'), redirects.exact);
+      writeJson(join(workspace, 'report', 'redirects.dynamic.json'), redirects.dynamic);
+      rmSync(join(workspace, 'report', 'redirects.wildcard.json'), { force: true });
       // The documentation's name always travels. How the site presents itself — brand colour, logo,
       // favicon, top-bar links, template, the finishing stylesheet — is the reviewed site plan, and the
       // old-address redirects are written where the platform reads them: computing them into a report
@@ -1623,7 +1629,10 @@ async function main() {
         // not hosted: exact output never points at the source host; an exploratory run keeps the source URL
         return exactOutput ? undefined : sourceUrl;
       };
-      const site = documentationSiteSettings({ name: meta.name ?? existing.name, plan: sitePlan, hosted, redirects: r.exact });
+      // The site runs wildcard redirects, so they go in with the exact rules; each exact rule a
+      // wildcard already says is left out, and readers see the same redirect either way.
+      const siteRedirectRules = collapseRedirectsForSite(redirects.rules);
+      const site = documentationSiteSettings({ name: meta.name ?? existing.name, plan: sitePlan, hosted, redirects: siteRedirectRules });
       // initialRoute is a page path without a leading slash; normalise values written by earlier runs
       const kept = typeof existing.initialRoute === 'string' ? existing.initialRoute.replace(/^\/+/, '') : undefined;
       const initialRoute = kept && written(kept) ? kept : firstWritten || undefined;
@@ -1647,8 +1656,10 @@ async function main() {
       const am = anchorMap(anchors, inbound);
       writeJson(join(workspace, 'report', 'anchors.json'), am.entries);
       if (unlisted.length) writeJson(join(workspace, 'report', 'unlisted-pages.json'), unlisted.map((page) => ({ id: page.id, source: page.source, newPath: page.newPath, title: page.title, reason: page.reason })));
+      // Last, once the output is complete, so the report's basis is the output verify will see.
+      writeJson(join(workspace, 'report', REDIRECT_ISSUES_REPORT), { basis: buildRedirectReportBasis(workspace, migrating, canonicalHash(join(workspace, 'output'))), issues: redirectIssues });
       markStage(workspace, 'nav', 'done');
-      ok(`documentation.json written; ${r.exact.length} exact redirects, ${r.wildcard.length} wildcard candidates, ${r.issues.length} issues; ${am.entries.filter((e) => e.needsShim).length} headings need anchor shims`);
+      ok(`documentation.json written; ${siteRedirectRules.length} redirects (from ${redirects.movedPages.length} moved pages, ${redirects.subtrees.length} wildcard redirects for moved sections and ${redirects.carried.length} carried from the source's own redirects), ${redirectIssues.length} redirect issues; ${am.entries.filter((e) => e.needsShim).length} headings need anchor shims`);
       if (unlisted.length) console.log(`· ${unlisted.length} page(s) the source publishes without a sidebar placement were migrated as files and listed in report/unlisted-pages.json`);
       console.log('· navigation artifacts are ready; run local verify before requesting human gate 3');
       break;

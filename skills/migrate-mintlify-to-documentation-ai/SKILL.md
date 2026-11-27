@@ -23,7 +23,7 @@ A hosted Mintlify site states its own content, and exact mode uses only those st
 
 ## What the adapter does
 - Walks the recursive navigation object (`versions`, `languages`, `tabs`, `anchors`, `dropdowns`, `products`, `groups`, `pages`) into `plan/tree.yaml` with group path, version and locale per page; lists pages that are in navigation but missing on disk.
-- Translates `redirects`: exact rules now; trailing `:slug*` or `*` become `:splat` candidates in `report/redirects.wildcard.json` (platform dependency); mid-path wildcards are reported and skipped.
+- Carries `redirects` over as written, since the platform reads Mintlify's syntax: exact rules, `:slug` parameters, `:slug*` wildcard redirects and `*` partial wildcards all go into `documentation.json` (the dynamic ones, with a parameter or a `*`, also listed in `report/redirects.dynamic.json`). A source with more than one `*`, which the platform skips, is reported instead.
 - Records group-level `openapi` references; `nav` copies the spec into the output and sets `openapi` on the matching group.
 - Resolves `import X from "/snippets/x.mdx"` and inlines `<X />` (no props) from the repo's `snippets/`; `.jsx` snippets and snippets used with props stay as source components for review.
 - Lifts `## Title {#custom-id}` into the anchor map; shims are emitted where inbound links need them. Mintlify's own heading ids (dots and spaces to hyphens, badge text included, `( ) , * :` dropped, repeats numbered `-2`, `-3`) are recorded as each heading's source id, so a link written against the Mintlify id lands after the target renderer slugs the heading its own way. An empty `<div id="…"></div>` is the anchor an older link still uses and is written as one.

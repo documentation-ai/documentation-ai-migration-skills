@@ -204,10 +204,11 @@ function main() {
     siteConfig: { schema: 'documentation.schema.json', topLevelKeys: siteConfig.topLevelKeys, required: siteConfig.required },
     icons,
     redirects: {
-      supported: { exact: true, namedParam: true, trailingWildcard: false, splat: false },
+      supported: { exact: true, namedParam: true, wildcard: true, partialWildcard: true },
       defaultStatus: 308,
       caseSensitive: true,
-      segmentCountMustMatch: true,
+      oneWildcardPerSource: true,
+      processingOrder: ['exact', 'partialWildcard', 'parameterOrWildcard'],
     },
     anchors: { customIds: false, slugger: 'rehype-slug (github-slugger), dashes collapsed' },
     images: { relativeSourcesResolve: false, note: 'loader accepts relative paths but deployment uploads no repo assets; use ingested absolute URLs' },

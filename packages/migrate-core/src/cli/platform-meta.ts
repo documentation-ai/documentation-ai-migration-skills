@@ -21,7 +21,7 @@ export interface PlatformMeta {
   colors?: Record<string, string>;
   logo?: unknown;
   favicon?: string;
-  redirects?: { exact: RedirectRule[]; wildcard: RedirectRule[] };
+  redirects?: { exact: RedirectRule[]; dynamic: RedirectRule[] };
   openapi?: GroupOpenapiRef[];
   /** Source repository root the openapi specs are relative to. */
   root?: string;

@@ -103,7 +103,7 @@
     },
     "redirects": {
       "type": "array",
-      "description": "URL redirects array. First matching redirect takes precedence",
+      "description": "URL redirects. Exact sources are tried first, then partial wildcards, then parameters and wildcards; within each group the first matching redirect in the list wins",
       "items": {
         "$ref": "#/$defs/redirect"
       }
@@ -780,11 +780,11 @@
       "properties": {
         "source": {
           "type": "string",
-          "description": "Incoming path pattern to match. Supports dynamic segments with :paramName syntax"
+          "description": "Incoming path to match, starting with /. A dynamic redirect matches many paths: :name is a parameter (one segment, /docs/:slug), :name* is a wildcard (any number of segments, none included, /beta/:slug*), and * inside a segment is a partial wildcard (any text in that segment, /articles/concepts-*). At most one * per source; no query or anchor"
         },
         "destination": {
           "type": "string",
-          "description": "Target path to redirect to. Can include dynamic parameters from source"
+          "description": "Path or full URL to redirect to. Can use the source's :name, :name* and *, which take what they matched: /v2/:slug*, /new/article-*. May end in a query or anchor"
         },
         "statusCode": {
           "type": "integer",

@@ -10,10 +10,10 @@ import { validateMdx, validateNavigation, validateSiteConfig } from '@dai/conten
 import { Ledger, effectiveExclusions, summarize, type LedgerSummary } from '../ledger/dispositions.js';
 import type { Block, DocIR, Inline } from '../ir/types.js';
 import { walkBlocks, mapBlocks, inlineText } from '../ir/types.js';
-import { redirectMaps, readUrlPlan } from '../urls/plan.js';
-import { redirectProblems } from '../urls/redirect-graph.js';
 import type { SiteLinks } from '../urls/site-links.js';
 import { sha256 } from '../session/ids.js';
+import { fileHash, listFilesUnder } from '../session/workspace.js';
+import { readUrlPlan } from '../urls/plan.js';
 import { isSafeUrl } from '../components/sanitize.js';
 import { readManifest, type AssetManifest, excludedAssetEntry, isIconOnly } from '../assets/manifest.js';
 import { markdownToIr } from '../ir/from-markdown.js';
@@ -143,14 +143,8 @@ export function waivedExactnessGates(gates: GateResult[]): GateResult[] {
   return gates.filter((gate) => gate.status === 'not-run' && family.has(gate.id));
 }
 
-export function listMdx(dir: string, out: string[] = []): string[] {
-  if (!existsSync(dir)) return out;
-  for (const f of readdirSync(dir)) {
-    const p = join(dir, f);
-    if (statSync(p).isDirectory()) { if (f !== 'node_modules' && f !== '.git') listMdx(p, out); }
-    else if (/\.mdx?$/.test(f)) out.push(p);
-  }
-  return out;
+export function listMdx(dir: string): string[] {
+  return listFilesUnder(dir).filter((file) => /\.mdx?$/.test(file));
 }
 
 /** Normalised prose segments: paragraphs, list items, headings, table cells. */
@@ -488,6 +482,23 @@ export interface GateInput {
   pinnedMigrator?: MigratorProvenance;
   currentMigrator?: MigratorProvenance;
 }
+
+/** The report the nav stage writes its redirect issues to, which the `redirects-clean` gate reads. */
+export const REDIRECT_ISSUES_REPORT = 'redirect-issues.json';
+
+/** What the nav stage worked its redirect report out from: a report whose basis no longer holds is stale. */
+export interface RedirectReportBasis { urlPlan: string; pagesInScope: string; output: string }
+
+export interface RedirectIssuesReport { basis: RedirectReportBasis; issues: string[] }
+
+/** The URL plan, the pages in scope and the whole output, each as a hash. */
+export function buildRedirectReportBasis(workspace: string, pagesInScope: Iterable<string>, outputHash: string): RedirectReportBasis {
+  const urlPlanFile = join(workspace, 'plan', 'urls.yaml');
+  return { urlPlan: existsSync(urlPlanFile) ? fileHash(urlPlanFile) : 'no plan', pagesInScope: sha256([...pagesInScope].sort().join('\n')), output: outputHash };
+}
+
+const isSameRedirectReportBasis = (recorded: RedirectReportBasis | undefined, current: RedirectReportBasis): boolean =>
+  recorded?.urlPlan === current.urlPlan && recorded.pagesInScope === current.pagesInScope && recorded.output === current.output;
 
 export function canonicalHash(outputDir: string): string {
   const files: string[] = [];
@@ -1009,28 +1020,35 @@ export function runGates(input: GateInput): GateResult[] {
   for (const f of outMdx) { const n = (readFileSync(f, 'utf8').match(/UNRESOLVED SNIPPET|QUARANTINED:|UNSUPPORTED (?:INLINE COMPONENT|EXPRESSION)/g) ?? []).length; if (n) { unresolved += n; if (unresolvedSamples.length < 5) unresolvedSamples.push(relative(input.outputDir, f)); } }
   gates.push({ id: 'no-unresolved-blocks', status: unresolved ? 'fail' : 'pass', detail: `${unresolved} unresolved snippet, component, expression, or quarantine placeholders remain in output`, count: unresolved, samples: unresolvedSamples });
 
-  // 8. redirects
-  const plan = readUrlPlan(input.workspace);
-  if (plan) {
-    const migrating = new Set(input.treePages.filter((page) => page.migrate).map((page) => page.id));
-    const r = redirectMaps(plan, (id) => migrating.has(id));
-    // The rules are also read as a graph: a set of individually valid rules can still loop, chain,
-    // claim one old path twice, or land on a page nobody wrote.
-    const graph = redirectProblems([...r.exact, ...r.wildcard], new Set(outByPath.keys()));
-    const issues = [...r.issues, ...graph.map((problem) => `${problem.kind}: ${problem.detail}`)];
-    gates.push({ id: 'redirects-clean', status: issues.length ? 'fail' : 'pass', detail: `${r.exact.length} exact rules, ${r.wildcard.length} wildcard candidates, ${issues.length} issues`, count: issues.length, samples: issues.slice(0, 6) });
+  // 8. redirects: the rules the nav stage wrote into documentation.json (the plan's and the
+  // source's own), and what it found reading them as a graph — a set of individually valid rules can
+  // still loop, chain, claim one old path twice, land on a page nobody wrote, or send readers away
+  // from a live one. The report records what it was worked out from; a stale one never passes.
+  const outputHash = canonicalHash(input.outputDir);
+  const readRedirectReport = <T>(name: string): T | undefined => {
+    const file = join(input.workspace, 'report', name);
+    return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as T) : undefined;
+  };
+  const redirectIssuesReport = readRedirectReport<RedirectIssuesReport>(REDIRECT_ISSUES_REPORT);
+  const pagesInScope = input.treePages.filter((page) => page.migrate).map((page) => page.id);
+  if (!redirectIssuesReport) gates.push({ id: 'redirects-clean', status: 'not-run', detail: `the nav stage has not written report/${REDIRECT_ISSUES_REPORT}` });
+  else if (!isSameRedirectReportBasis(redirectIssuesReport.basis, buildRedirectReportBasis(input.workspace, pagesInScope, outputHash))) {
+    gates.push({ id: 'redirects-clean', status: 'fail', detail: 'the URL plan, the pages in scope or the output changed since nav; run nav again' });
+  } else {
+    const { issues } = redirectIssuesReport;
+    const exactCount = readRedirectReport<unknown[]>('redirects.exact.json')?.length ?? 0;
+    const dynamicCount = readRedirectReport<unknown[]>('redirects.dynamic.json')?.length ?? 0;
+    gates.push({ id: 'redirects-clean', status: issues.length ? 'fail' : 'pass', detail: `${exactCount} exact rules, ${dynamicCount} dynamic redirects, ${issues.length} issues`, count: issues.length, samples: issues.slice(0, 6) });
   }
-  else gates.push({ id: 'redirects-clean', status: 'not-run', detail: 'no plan/urls.yaml' });
 
   // 9. unreviewed decisions
   gates.push({ id: 'no-unreviewed-decisions', status: input.unreviewed ? 'fail' : 'pass', detail: `${input.unreviewed} T5/T6/T7 clusters not reviewed`, count: input.unreviewed });
 
   // 10. determinism
-  const hash = canonicalHash(input.outputDir);
   // compare convert against convert: the live output also contains nav artefacts written after convert
-  const current = input.convertOutputHash ?? hash;
+  const current = input.convertOutputHash ?? outputHash;
   if (input.previousCanonicalHash) gates.push({ id: 'deterministic-rerun', status: input.previousCanonicalHash === current ? 'pass' : 'fail', detail: `convert output ${current.slice(0, 12)} vs previous convert ${input.previousCanonicalHash.slice(0, 12)} over identical inputs` });
-  else gates.push({ id: 'deterministic-rerun', status: 'not-run', detail: `no second convert over identical inputs yet; run convert again (hash ${hash.slice(0, 12)})` });
+  else gates.push({ id: 'deterministic-rerun', status: 'not-run', detail: `no second convert over identical inputs yet; run convert again (hash ${outputHash.slice(0, 12)})` });
 
   // 11. preview-based gates
   if (input.previewUrl) {

@@ -59,7 +59,7 @@ export const NATIVE_ADAPTERS: readonly NativeSourceAdapter[] = [
         tree: repo.tree,
         meta: { platform: 'mintlify', configFile: repo.configFile, name: repo.name, colors: repo.colors, logo: repo.logo, favicon: repo.favicon, redirects: repo.redirects, openapi: repo.openapi, missing: repo.missing },
         notes: repo.missing.length ? [`${repo.missing.length} page(s) listed in ${repo.configFile} are not in the repository`] : [],
-        summary: `${repo.tree.pages.length} pages from ${repo.configFile} (${versions(repo.tree)} version(s)); ${repo.missing.length} listed pages missing; ${repo.redirects.exact.length} exact + ${repo.redirects.wildcard.length} wildcard redirects; ${repo.openapi.length} openapi group(s)`,
+        summary: `${repo.tree.pages.length} pages from ${repo.configFile} (${versions(repo.tree)} version(s)); ${repo.missing.length} listed pages missing; ${repo.redirects.exact.length} exact + ${repo.redirects.dynamic.length} dynamic redirects; ${repo.openapi.length} openapi group(s)`,
       };
     },
     navigationWitness: (root) => readMintlifyRepo(root).tree.navigation,
@@ -71,7 +71,7 @@ export const NATIVE_ADAPTERS: readonly NativeSourceAdapter[] = [
       const repo = readGitbookRepo(root);
       return {
         tree: repo.tree,
-        meta: { platform: 'gitbook', redirects: { exact: repo.redirects, wildcard: [] }, missing: repo.missing, unlisted: repo.unlisted },
+        meta: { platform: 'gitbook', redirects: { exact: repo.redirects, dynamic: [] }, missing: repo.missing, unlisted: repo.unlisted },
         notes: [
           ...(repo.missing.length ? [`${repo.missing.length} page(s) listed in SUMMARY.md are not in the repository`] : []),
           ...(repo.unlisted.length ? [`${repo.unlisted.length} file(s) in the repository are not listed in SUMMARY.md; review plan/tree.yaml`] : []),
@@ -92,14 +92,14 @@ export const NATIVE_ADAPTERS: readonly NativeSourceAdapter[] = [
           platform: 'fern', ...(repo.name ? { name: repo.name } : {}), missing: repo.missing, unreferenced: repo.unreferenced, links: repo.links,
           // each API section is a group the platform fills from its spec, captured by acquire like any other
           openapi: repo.apiSections.map(({ groupPath, spec, version, hiddenApis }) => ({ groupPath, spec, ...(version ? { version } : {}), ...(hiddenApis ? { hiddenApis } : {}) })),
-          redirects: { exact: repo.redirects.exact, wildcard: repo.redirects.wildcard },
+          redirects: { exact: repo.redirects.exact, dynamic: repo.redirects.dynamic },
         },
         notes: [
           ...(repo.missing.length ? [`${repo.missing.length} entr(ies) named in fern/docs.yml are not in the repository: ${repo.missing.slice(0, 3).join(', ')}`] : []),
           ...(repo.unreferenced.length ? [`${repo.unreferenced.length} file(s) under fern/ are in no navigation entry; Fern does not publish them either`] : []),
           ...repo.apiSections.map((section) => `API reference "${section.title}": ${section.endpoints} endpoint page(s), built by Documentation.AI from ${section.spec}; their old addresses redirect to the new pages`),
           ...repo.apiNotes,
-          ...(repo.redirects.exact.length || repo.redirects.wildcard.length ? [`${repo.redirects.exact.length + repo.redirects.wildcard.length} redirect(s) carried over (fern/docs.yml redirects and old endpoint addresses)`] : []),
+          ...(repo.redirects.exact.length || repo.redirects.dynamic.length ? [`${repo.redirects.exact.length + repo.redirects.dynamic.length} redirect(s) carried over (fern/docs.yml redirects and old endpoint addresses)`] : []),
           ...repo.redirects.skipped.map((rule) => `redirect ${rule.source} is not carried: ${rule.reason}`),
           ...(repo.links.length ? [`${repo.links.length} navigation link(s) to other sites (${repo.links.slice(0, 3).map((link) => link.title).join(', ')}); they are not pages and are not migrated`] : []),
         ],

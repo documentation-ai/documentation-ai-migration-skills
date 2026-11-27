@@ -40,7 +40,7 @@ export function canonicalUrl(base: string | undefined, newPath: string): string 
   return url.toString();
 }
 
-export function writeCutoverArtifacts(workspace: string, input: { tree: Tree; urlPlan: UrlPlan; exact: RedirectRule[]; wildcard: RedirectRule[]; seo: SeoPlan }): void {
+export function writeCutoverArtifacts(workspace: string, input: { tree: Tree; urlPlan: UrlPlan; exact: RedirectRule[]; dynamic: RedirectRule[]; seo: SeoPlan }): void {
   const publicPages = input.tree.pages.filter((page) => page.migrate && page.newPath);
   writeFileSync(join(workspace, 'report', 'sitemap.urls.txt'), publicPages.map((page) => canonicalUrl(input.seo.targetBase, page.newPath!) ?? `/${page.newPath}`).join('\n') + '\n', { mode: 0o600 });
   const md = `# Cutover and SEO runbook
@@ -50,14 +50,14 @@ export function writeCutoverArtifacts(workspace: string, input: { tree: Tree; ur
 - Source: ${input.seo.sourceBase ?? 'set in plan/seo.yaml'}
 - Target: ${input.seo.targetBase ?? 'set in plan/seo.yaml'}
 - Exact redirects: ${input.exact.length}
-- Wildcard candidates requiring platform support: ${input.wildcard.length}
+- Dynamic redirects: ${input.dynamic.length}
 - Minimum redirect retention: ${input.seo.redirectRetentionDays} days
 - Hreflang preservation: ${input.seo.preserveHreflang ? 'required' : 'not configured'}
 
 ## Before cutover
 
 - Confirm every release gate passes against the rendered preview.
-- Approve redirects.exact.json and every wildcard candidate.
+- Approve redirects.exact.json and redirects.dynamic.json.
 - Configure target canonical host, robots policy and sitemap using sitemap.urls.txt.
 - Keep the source site available read-only until redirects and rollback are proven.
 - Lower DNS TTL only if DNS changes are part of this migration.

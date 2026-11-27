@@ -76,11 +76,11 @@ describe('GitBook cards', () => {
 });
 
 describe('redirect wildcards', () => {
-  it('do not shadow an exact rule they agree with', () => {
+  it('leave an exact rule beneath them alone, whether it agrees or overrides', () => {
+    // the site tries exact sources first, so /docs/a/y goes to /other and the rest follow the wildcard
     const exact = [{ source: '/docs/a/x', destination: '/en/docs/a/x', statusCode: 308 }, { source: '/docs/a/y', destination: '/other', statusCode: 308 }];
-    const wildcard = [{ source: '/docs/a/*', destination: '/en/docs/a/:splat', statusCode: 308 }];
-    const problems = redirectProblems([...exact, ...wildcard], new Set(['en/docs/a/x', 'other']));
-    expect(problems.filter((p) => p.kind === 'shadowed').map((p) => p.detail)).toEqual([expect.stringContaining('/docs/a/y')]);
+    const wildcard = [{ source: '/docs/a/:slug*', destination: '/en/docs/a/:slug*', statusCode: 308 }];
+    expect(redirectProblems([...exact, ...wildcard], new Set(['en/docs/a/x', 'other']))).toEqual([]);
   });
 });
 

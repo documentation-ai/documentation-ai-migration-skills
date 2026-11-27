@@ -4,7 +4,7 @@ Generate the implemented migration report set: gate JSON, Markdown review queue 
 
 Run `documentation-ai-migrate report` after verification. It summarizes the single machine-readable gate dataset and decision log. Report generation is automatic and is not a separate human gate; final cutover approval remains gate 4/4.
 
-Outputs currently implemented: `report/gates.json`, `report/review-queue.md`, `report/summary.md`, exact/wildcard redirect JSON, anchor JSON, `report/platform-gaps.json` (aggregated T4/T6/T7 decisions and anchor-shim count), and the customer report as `report/customer-report.{html,pdf,json}`.
+Outputs currently implemented: `report/gates.json`, `report/review-queue.md`, `report/summary.md`, exact and dynamic redirect JSON (`report/redirects.exact.json`, `report/redirects.dynamic.json`), the redirect issues the nav stage found (`report/redirect-issues.json`), anchor JSON, `report/platform-gaps.json` (aggregated T4/T6/T7 decisions and anchor-shim count), and the customer report as `report/customer-report.{html,pdf,json}`.
 
 Engineer-notes enforcement, CSV annexes, performance comparisons and cutover-plan generation are future work. Do not claim those artefacts exist.
 
