@@ -16,7 +16,7 @@ import { RulesEngine, applyDeclaredLosses, loadMappings, type MappingTable } fro
 import { DecisionLog } from '../src/log/decisions.js';
 import { Fetcher, isPublicAddress, type FetchImpl } from '../src/scrape/fetcher.js';
 import { remoteOrg, assertRemoteAllowed } from '../src/write/migration-branch.js';
-import { EXACT_FAMILY_GATE_IDS, headingOutline, isHtmlChromeNode, mdxHeadingOutline, mdxTableSignatures, normaliseMdxText, previewPushBlockers, proseSegments, releaseBlockers, REQUIRED_RELEASE_GATE_IDS, runGates, tableSignatures, waivedExactnessGates, type GateInput } from '../src/verify/gates.js';
+import { buildRedirectReportBasis, canonicalHash, EXACT_FAMILY_GATE_IDS, headingOutline, REDIRECT_ISSUES_REPORT, isHtmlChromeNode, mdxHeadingOutline, mdxTableSignatures, normaliseMdxText, previewPushBlockers, proseSegments, releaseBlockers, REQUIRED_RELEASE_GATE_IDS, runGates, tableSignatures, waivedExactnessGates, type GateInput } from '../src/verify/gates.js';
 import { unreadableImageDimensions } from '../src/ir/dimensions.js';
 import { chromeDump, pinnedResolverRules, runBrowserContentGate, runBrowserFragmentGate } from '../src/verify/browser.js';
 import { authoredContentSnapshot, fidelityEqual, firstFidelityDifference, renderedDocSnapshot } from '../src/verify/fidelity.js';
@@ -772,6 +772,27 @@ describe('gate semantics', () => {
   const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
   const gateInput = (workspace: string, overrides: Partial<GateInput> = {}): GateInput => ({ workspace, outputDir: join(workspace, 'output'), sourceDocs: [], treePages: [], quarantinedPages: new Set(), excludedPages: new Set(), unreviewed: 0, pinnedContractVersion: '0.1.0', fidelityMode: 'exact', ...overrides });
   const gate = (gates: ReturnType<typeof runGates>, id: string) => gates.find((g) => g.id === id)!;
+
+  it('reads the redirect report nav wrote, and fails a stale one', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'dai-redirect-report-')); ensureWorkspace(ws);
+    writeFileSync(join(ws, 'plan', 'urls.yaml'), 'mode: preserve\npages: []\n');
+    writeFileSync(join(ws, 'output', 'page.mdx'), '# Page');
+    const treePages = [{ id: 'p', migrate: true, newPath: 'page' }];
+    const writeReport = (issues: string[]) => writeFileSync(join(ws, 'report', REDIRECT_ISSUES_REPORT), JSON.stringify({ basis: buildRedirectReportBasis(ws, ['p'], canonicalHash(join(ws, 'output'))), issues }));
+    expect(gate(runGates(gateInput(ws, { treePages })), 'redirects-clean')).toMatchObject({ status: 'not-run' });
+    writeReport([]);
+    expect(gate(runGates(gateInput(ws, { treePages })), 'redirects-clean')).toMatchObject({ status: 'pass' });
+    writeReport(['loop: /a → /b → /a is a redirect loop']);
+    expect(gate(runGates(gateInput(ws, { treePages })), 'redirects-clean')).toMatchObject({ status: 'fail', count: 1 });
+    writeReport([]);
+    // the URL plan, the pages in scope or the output changing after nav makes the report stale
+    writeFileSync(join(ws, 'plan', 'urls.yaml'), 'mode: preserve\npages: []\nscope: full\n');
+    expect(gate(runGates(gateInput(ws, { treePages })), 'redirects-clean')).toMatchObject({ status: 'fail', detail: 'the URL plan, the pages in scope or the output changed since nav; run nav again' });
+    writeReport([]);
+    expect(gate(runGates(gateInput(ws, { treePages: [...treePages, { id: 'q', migrate: true, newPath: 'other' }] })), 'redirects-clean')).toMatchObject({ status: 'fail' });
+    writeFileSync(join(ws, 'output', 'page.mdx'), '# Page, edited');
+    expect(gate(runGates(gateInput(ws, { treePages })), 'redirects-clean')).toMatchObject({ status: 'fail' });
+  });
 
   it('accepts as an exclusion only an image whose asset a person decided not to carry', () => {
     const ws = mkdtempSync(join(tmpdir(), 'dai-decided-asset-')); ensureWorkspace(ws);

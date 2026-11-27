@@ -1256,7 +1256,7 @@ describe('cutover and canary', () => {
     const w = ws();
     const seo = writeDefaultSeoPlan(w, 'https://help.example/docs');
     expect(seo.sourceBase).toBe('https://help.example');
-    writeCutoverArtifacts(w, { tree, urlPlan: { mode: 'preserve', scope: 'full', preserve: { case: 'preserve' }, restructure: { strategy: 'from-nav' }, pages: [] }, exact: [{ source: '/old/install', destination: '/install', statusCode: 308 }], wildcard: [], seo: { ...seo, targetBase: 'https://docs.example' } });
+    writeCutoverArtifacts(w, { tree, urlPlan: { mode: 'preserve', scope: 'full', preserve: { case: 'preserve' }, restructure: { strategy: 'from-nav' }, pages: [] }, exact: [{ source: '/old/install', destination: '/install', statusCode: 308 }], dynamic: [], seo: { ...seo, targetBase: 'https://docs.example' } });
     expect(readFileSync(join(w, 'report', 'sitemap.urls.txt'), 'utf8')).toBe('https://docs.example/install\n');
     const md = readFileSync(join(w, 'report', 'cutover.md'), 'utf8');
     expect(md).toContain('Exact redirects: 1');

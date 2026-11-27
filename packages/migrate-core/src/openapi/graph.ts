@@ -1,6 +1,6 @@
 /** Freeze OpenAPI documents as a reference graph. Never flatten schemas or select a single media type. */
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { sha256 } from '../session/ids.js';
 import { mapConcurrent } from '../scrape/concurrency.js';
@@ -28,6 +28,40 @@ export const capturedSpecFile = fileFor;
 export function specOutputPath(spec: string): string {
   const clean = spec.replace(/^\.?\/+/, '');
   return clean.startsWith('api-reference/') ? clean : `api-reference/${clean}`;
+}
+
+/** The methods the platform makes a page for (its deployment step reads these and no others). */
+export const PLATFORM_PAGE_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
+
+/**
+ * The route of the page the platform makes for an operation, beside the spec it reads it from (its
+ * deployment step's own naming): `GET /users/{id}` of `api-reference/openapi.json` is
+ * `api-reference/get-users-id`. `specPath` is where the spec sits in the output.
+ */
+export function platformEndpointPath(method: string, path: string, specPath: string): string {
+  const clean = path.replace(/[{}]/g, '').replace(/[^\w\s-]/g, '-').replace(/\/+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return posix.join(posix.dirname(specPath), `${method.toLowerCase()}-${clean}`.toLowerCase());
+}
+
+const BYTE_ORDER_MARK = '\uFEFF';
+
+/**
+ * The routes of the pages the platform builds for a spec a navigation group names, from the spec's
+ * text and its path in the output, less the operations the group hides (`hidden-apis`, written
+ * `METHOD /path`), as its deployment step does. A JSON spec is read with JSON.parse, which is far
+ * quicker on a large file than the YAML reader; a spec that does not parse builds no pages.
+ */
+export function listPlatformEndpointPaths(specText: string, specPath: string, hiddenApis: readonly string[]): string[] {
+  const text = specText.startsWith(BYTE_ORDER_MARK) ? specText.slice(BYTE_ORDER_MARK.length) : specText;
+  let spec: unknown;
+  try { spec = /\.json$/i.test(specPath) ? JSON.parse(text) : parseSpec(text); } catch { return []; }
+  const paths = (spec as { paths?: Record<string, Record<string, unknown> | null> } | null)?.paths;
+  if (!paths || typeof paths !== 'object') return [];
+  const hidden = new Set(hiddenApis);
+  return Object.entries(paths).flatMap(([path, operations]) =>
+    Object.keys(operations ?? {})
+      .filter((method) => PLATFORM_PAGE_METHODS.includes(method) && !hidden.has(`${method.toUpperCase()} ${path}`))
+      .map((method) => platformEndpointPath(method, path, specPath)));
 }
 
 function jsonValue(value: unknown, seen = new Set<unknown>()): Json {

@@ -39,4 +39,4 @@ Phase 2 modules reviewed in the same pass:
 | dai-api provider | Rewritten 2026-09-18 for the platform's real `POST /api/v1/media` multipart route; the presign endpoints it targeted were never built. `dai-mcp` (sign-in, `import_media`) is now the key-free default | Resolved, pending platform deploy |
 | discovery | Crawls serially at the fetcher's rate; 5,000 pages at 2 rps is ~40 minutes | Accepted for now |
 
-Open, by design or pending platform work: parser-based contract validation (3), preview search index, `contentContractVersion` exposure, atomic bulk write session, API-key asset ingestion, wildcard redirects, custom heading anchors.
+Open, by design or pending platform work: parser-based contract validation (3), preview search index, `contentContractVersion` exposure, atomic bulk write session, API-key asset ingestion, custom heading anchors. (Wildcard redirects shipped with DAI-292: the migrator writes them into `documentation.json`.)

@@ -13663,12 +13663,17 @@
     "supported": {
       "exact": true,
       "namedParam": true,
-      "trailingWildcard": false,
-      "splat": false
+      "wildcard": true,
+      "partialWildcard": true
     },
     "defaultStatus": 308,
     "caseSensitive": true,
-    "segmentCountMustMatch": true
+    "oneWildcardPerSource": true,
+    "processingOrder": [
+      "exact",
+      "partialWildcard",
+      "parameterOrWildcard"
+    ]
   },
   "anchors": {
     "customIds": false,

@@ -11,8 +11,8 @@ import { describe, it, expect } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { readFernRepo } from '../src/adapters/fern.js';
-import { platformEndpointPath } from '../src/adapters/fern-api.js';
+import { readFernRedirects, readFernRepo } from '../src/adapters/fern.js';
+import { platformEndpointPath } from '../src/openapi/graph.js';
 import { buildDocumentationNavigation, type SourceNavigationNode } from '../src/nav/tree.js';
 
 const write = (root: string, file: string, body: string): void => { mkdirSync(join(root, dirname(file)), { recursive: true }); writeFileSync(join(root, file), body); };
@@ -65,16 +65,16 @@ describe('Fern API reference sections', () => {
     expect(tab.children.at(-1)).toEqual({ type: 'group', label: 'API Reference', children: [], openapi: true });
   });
 
-  it('redirects every address Fern served an endpoint at to the page the platform makes for it', () => {
+  it('redirects every address Fern served an endpoint at to the page the platform makes for it, beside the spec', () => {
     const fern = readFernRepo(privateGptLike());
     const endpoints = Object.fromEntries(fern.redirects.exact.filter((rule) => rule.source.startsWith('/api-reference/')).map((rule) => [rule.source, rule.destination]));
     expect(endpoints).toEqual({
-      '/api-reference/messages/chat-messages-v-1-messages-post': '/api-reference/post-v1-messages',
+      '/api-reference/messages/chat-messages-v-1-messages-post': '/api-reference/fern/openapi/post-v1-messages',
       // an operationId that starts with its group names the endpoint by the rest
-      '/api-reference/embeddings/generation-v-1-embeddings-post': '/api-reference/post-v1-embeddings',
-      '/api-reference/files/head-file-v-1-files-file-id-head': '/api-reference/head-v1-files-file_id',
+      '/api-reference/embeddings/generation-v-1-embeddings-post': '/api-reference/fern/openapi/post-v1-embeddings',
+      '/api-reference/files/head-file-v-1-files-file-id-head': '/api-reference/fern/openapi/head-v1-files-file_id',
       // the SDK's own names win over the tag and operationId
-      '/api-reference/models/list': '/api-reference/get-v1-models',
+      '/api-reference/models/list': '/api-reference/fern/openapi/get-v1-models',
     });
     // nothing for the endpoint Fern does not publish, and a written page's address stays the page's
     expect(fern.redirects.exact.some((rule) => rule.destination.includes('delete-'))).toBe(false);
@@ -84,7 +84,7 @@ describe('Fern API reference sections', () => {
   it('carries the redirects docs.yml states, wildcards included', () => {
     const fern = readFernRepo(privateGptLike());
     expect(fern.redirects.exact[0]).toEqual({ source: '/overview/welcome/introduction', destination: '/introduction', statusCode: 308 });
-    expect(fern.redirects.wildcard).toEqual([{ source: '/old/*', destination: '/new/:splat', statusCode: 307 }]);
+    expect(fern.redirects.dynamic).toEqual([{ source: '/old/:slug*', destination: '/new/:slug*', statusCode: 307 }]);
   });
 
   it('writes the group into documentation.json with the spec and the hidden operations, and no pages of its own', () => {
@@ -108,11 +108,11 @@ describe('Fern API reference sections', () => {
       'fern/openapi/openapi.json': SPEC,
     }));
     const endpoints = Object.fromEntries(fern.redirects.exact.map((rule) => [rule.source, rule.destination]));
-    expect(endpoints['/chat']).toBe('/api-reference/post-v1-messages');
-    expect(endpoints['/chat-stream']).toBe('/api-reference/post-v1-messages');
-    expect(endpoints['/models/list']).toBe('/api-reference/get-v1-models');
+    expect(endpoints['/chat']).toBe('/api-reference/fern/openapi/post-v1-messages');
+    expect(endpoints['/chat-stream']).toBe('/api-reference/fern/openapi/post-v1-messages');
+    expect(endpoints['/models/list']).toBe('/api-reference/fern/openapi/get-v1-models');
     // an endpoint the layout does not place keeps Fern's default address
-    expect(endpoints['/embeddings/generation-v-1-embeddings-post']).toBe('/api-reference/post-v1-embeddings');
+    expect(endpoints['/embeddings/generation-v-1-embeddings-post']).toBe('/api-reference/fern/openapi/post-v1-embeddings');
   });
 
   it('reads the spec of a named API from fern/apis/<name>/', () => {
@@ -138,7 +138,69 @@ describe('Fern API reference sections', () => {
   });
 
   it('names endpoint pages exactly as the platform does', () => {
-    expect(platformEndpointPath('GET', '/users/{id}')).toBe('api-reference/get-users-id');
-    expect(platformEndpointPath('POST', '/v1/messages/count_tokens')).toBe('api-reference/post-v1-messages-count_tokens');
+    expect(platformEndpointPath('GET', '/users/{id}', 'api-reference/openapi.json')).toBe('api-reference/get-users-id');
+    expect(platformEndpointPath('POST', '/v1/messages/count_tokens', 'api-reference/openapi.json')).toBe('api-reference/post-v1-messages-count_tokens');
+    // beside the spec, wherever it sits
+    expect(platformEndpointPath('GET', '/users/{id}', 'api-reference/fern/openapi/openapi.yml')).toBe('api-reference/fern/openapi/get-users-id');
+  });
+});
+
+describe('readFernRedirects', () => {
+  it('carries the syntax Fern and the platform share as written, permanent unless it says otherwise', () => {
+    expect(readFernRedirects([
+      { source: '/old/:slug*', destination: '/new/:slug*' },
+      { source: '/docs/:slug', destination: '/guides/:slug', permanent: false },
+      { source: '/legacy', destination: '/start' },
+    ])).toEqual({
+      exact: [{ source: '/legacy', destination: '/start', statusCode: 308 }],
+      dynamic: [{ source: '/old/:slug*', destination: '/new/:slug*', statusCode: 308 }, { source: '/docs/:slug', destination: '/guides/:slug', statusCode: 307 }],
+      skipped: [],
+    });
+  });
+
+  it('lists what has no platform equivalent instead of changing it', () => {
+    const read = readFernRedirects([
+      { source: '/v1/:slug+', destination: '/v2/:slug+' },
+      { source: '/api/:version(v[0-9]+)/:slug', destination: '/:version/:slug' },
+      { source: '/files/(.*)', destination: '/assets/:0' },
+      { source: '/old/*', destination: '/new' },
+    ]);
+    expect(read.exact).toEqual([]);
+    expect(read.dynamic).toEqual([]);
+    expect(read.skipped.map((entry) => entry.source)).toEqual(['/v1/:slug+', '/api/:version(v[0-9]+)/:slug', '/files/(.*)', '/old/*']);
+    expect(read.skipped[3].reason).toBe('Fern does not document a bare *; add it by hand once you know what it matched');
+  });
+
+  it('leaves out an exact rule an earlier pattern matched first, which never ran on Fern', () => {
+    const read = readFernRedirects([
+      { source: '/kept', destination: '/first' },
+      { source: '/docs/:slug*', destination: '/guides/:slug*' },
+      { source: '/docs/intro', destination: '/never' },
+    ]);
+    expect(read.exact).toEqual([{ source: '/kept', destination: '/first', statusCode: 308 }]);
+    expect(read.skipped).toEqual([{ source: '/docs/intro', reason: 'never ran on the source: an earlier pattern matches it first' }]);
+  });
+
+  it('leaves out an exact rule an earlier :name+ rule matched first, read as one or more segments', () => {
+    const read = readFernRedirects([
+      { source: '/v1/:slug+', destination: '/v2/:slug+' },
+      { source: '/v1/intro', destination: '/never' },
+      { source: '/v1', destination: '/start' },
+    ]);
+    expect(read.exact).toEqual([{ source: '/v1', destination: '/start', statusCode: 308 }]);
+    expect(read.skipped).toEqual([
+      expect.objectContaining({ source: '/v1/:slug+' }),
+      { source: '/v1/intro', reason: 'never ran on the source: an earlier pattern matches it first' },
+    ]);
+  });
+
+  it('lists an exact rule under an earlier regular expression, which may have matched it first', () => {
+    const read = readFernRedirects([
+      { source: '/files/(.*)', destination: '/assets/:0' },
+      { source: '/files/report', destination: '/reports' },
+      { source: '/other', destination: '/elsewhere' },
+    ]);
+    expect(read.exact).toEqual([{ source: '/other', destination: '/elsewhere', statusCode: 308 }]);
+    expect(read.skipped[1]).toEqual({ source: '/files/report', reason: 'an earlier Fern rule that cannot be carried may have matched it first; check it by hand' });
   });
 });

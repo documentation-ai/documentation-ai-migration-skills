@@ -14,7 +14,7 @@
  *   logging/              decisions.jsonl, run log
  *   report/               gates.json, verification.json, review-queue.md, customer report
  */
-import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, chmodSync, statSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, chmodSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir, platform as osPlatform } from 'node:os';
 import { sha256 } from './ids.js';
@@ -195,6 +195,17 @@ export function markStage(workspace: string, stage: string, status: 'pending' | 
   s.stages[stage] = { status, at: new Date().toISOString(), note };
   writeSession(workspace, s);
   return s;
+}
+
+/** Every file under a folder at any depth, `node_modules` and `.git` left out; a missing folder holds none. */
+export function listFilesUnder(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (!statSync(path).isDirectory()) return [path];
+    if (name === 'node_modules' || name === '.git') return [];
+    return listFilesUnder(path);
+  });
 }
 
 /** Hash of a file's contents for the session pins. */

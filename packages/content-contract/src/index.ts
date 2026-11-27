@@ -24,6 +24,7 @@ import {
 } from './icon-contract/icon-contract.js';
 
 export * from './icon-contract/icon-contract.js';
+export * from './redirects.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -81,10 +82,14 @@ export interface ContentContract {
    */
   icons: { contract: string; sets: Record<IconSetId, IconSetContract> };
   redirects: {
-    supported: { exact: boolean; namedParam: boolean; trailingWildcard: boolean; splat: boolean };
+    /** `namedParam` is `:slug` (one segment), `wildcard` is `:slug*` (any number), `partialWildcard` is `*` inside one segment. */
+    supported: { exact: boolean; namedParam: boolean; wildcard: boolean; partialWildcard: boolean };
     defaultStatus: number;
     caseSensitive: boolean;
-    segmentCountMustMatch: boolean;
+    /** A source with more than one `*` is skipped by the site. */
+    oneWildcardPerSource: boolean;
+    /** The groups the site tries in turn; within a group the list's own order holds. */
+    processingOrder: Array<'exact' | 'partialWildcard' | 'parameterOrWildcard'>;
   };
   anchors: { customIds: boolean; slugger: string };
   images: { relativeSourcesResolve: boolean; note: string };
@@ -646,13 +651,6 @@ export function migrateIcon(
   const equivalent = ICON_EQUIVALENTS[name];
   if (equivalent && iconInSet('lucide', equivalent, contract)) return { value: iconValueForPick('lucide', equivalent, library) };
   return migrateFontAwesome(name, options.style, library, contract);
-}
-
-/** Redirect rule support check against the platform. */
-export function classifyRedirect(source: string, contract = loadContract()): 'exact' | 'named-param' | 'needs-wildcard' {
-  if (/\*/.test(source) || /:splat/.test(source)) return contract.redirects.supported.trailingWildcard ? 'named-param' : 'needs-wildcard';
-  if (/:[A-Za-z_]+/.test(source)) return 'named-param';
-  return 'exact';
 }
 
 export const SLUG_RULES = {
